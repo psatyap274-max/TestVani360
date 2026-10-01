@@ -1,4 +1,5 @@
 name: Build TestVaani 360 APK
+
 on:
   workflow_dispatch:
   push:
@@ -33,7 +34,7 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Fix Android Kotlin configuration
+      - name: Migrate project to built-in Kotlin
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -41,23 +42,86 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          for p in Path(".").rglob("*.gradle.kts"):
+          root = Path(".")
+
+          # Remove old Kotlin Android plugin from all Gradle files.
+          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
               text = p.read_text()
 
-              text = text.replace(
-                  '    kotlinOptions { jvmTarget = "17" }\n',
-                  '''    kotlin {
-              compilerOptions {
-                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-              }
-          }
-          '''
+              text = re.sub(
+                  r'^[ \t]*(?:id\(["\']org\.jetbrains\.kotlin\.android["\']\)|id[ \t]+["\']org\.jetbrains\.kotlin\.android["\'](?:[ \t]+version[^\n]*)?)[^\n]*\n',
+                  '',
+                  text,
+                  flags=re.MULTILINE
+              )
+
+              text = re.sub(
+                  r'^[ \t]*alias\(libs\.plugins\.kotlin\.android\)[^\n]*\n',
+                  '',
+                  text,
+                  flags=re.MULTILINE
               )
 
               p.write_text(text)
 
-          print("Android Kotlin configuration fixed.")
+          # Remove old Kotlin Android plugin declaration from version catalog.
+          for p in root.rglob("libs.versions.toml"):
+              text = p.read_text()
+
+              text = re.sub(
+                  r'^[ \t]*kotlin-android[ \t]*=[^\n]*\n',
+                  '',
+                  text,
+                  flags=re.MULTILINE
+              )
+
+              p.write_text(text)
+
+          # Ensure built-in Kotlin is enabled.
+          gp = root / "gradle.properties"
+
+          if gp.exists():
+              text = gp.read_text()
+              text = re.sub(
+                  r'^[ \t]*android\.builtInKotlin[ \t]*=[^\n]*\n?',
+                  '',
+                  text,
+                  flags=re.MULTILINE
+              )
+          else:
+              text = ""
+
+          text = text.rstrip() + "\nandroid.builtInKotlin=true\n"
+          gp.write_text(text)
+
+          # Remove legacy android.kotlinOptions block if present.
+          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
+              text = p.read_text()
+
+              text = re.sub(
+                  r'\n[ \t]*kotlinOptions[ \t]*\{[^{}]*\}',
+                  '',
+                  text,
+                  flags=re.DOTALL
+              )
+
+              p.write_text(text)
+
+          # Remove any remaining direct Kotlin Android plugin references.
+          remaining = []
+
+          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
+              for i, line in enumerate(p.read_text().splitlines(), 1):
+                  if "org.jetbrains.kotlin.android" in line:
+                      remaining.append(f"{p}:{i}: {line}")
+
+          if remaining:
+              print("\n".join(remaining))
+              raise SystemExit("Old Kotlin Android plugin reference still exists.")
+
+          print("Built-in Kotlin migration completed.")
           PY
 
       - name: Fix Firebase OTP callback
@@ -73,35 +137,39 @@ jobs:
           p = Path("app/src/main/java/com/testvaani360/app/AccountManager.kt")
 
           if not p.exists():
-              raise SystemExit(f"File not found: {p}")
+              print("AccountManager.kt not found; skipping Firebase callback patch.")
+          else:
+              text = p.read_text()
 
-          text = p.read_text()
-
-          text = re.sub(
-              r'onVerificationFailed\s*\(\s*exception\s*:\s*Exception\s*\)',
-              'onVerificationFailed(exception: FirebaseException)',
-              text
-          )
-
-          if 'import com.google.firebase.FirebaseException' not in text:
-              lines = text.splitlines(True)
-
-              insert_at = 0
-              for i, line in enumerate(lines):
-                  if line.startswith("package "):
-                      insert_at = i + 1
-                      break
-
-              lines.insert(
-                  insert_at,
-                  'import com.google.firebase.FirebaseException\n'
+              text = re.sub(
+                  r'onVerificationFailed\s*\(\s*exception\s*:\s*Exception\s*\)',
+                  'onVerificationFailed(exception: FirebaseException)',
+                  text
               )
 
-              text = ''.join(lines)
+              if (
+                  'import com.google.firebase.FirebaseException'
+                  not in text
+                  and 'FirebaseException' in text
+              ):
+                  lines = text.splitlines(True)
+                  pos = 0
 
-          p.write_text(text)
+                  for i, line in enumerate(lines):
+                      if line.startswith("package "):
+                          pos = i + 1
+                          break
 
-          print("Firebase OTP callback fixed.")
+                  lines.insert(
+                      pos,
+                      'import com.google.firebase.FirebaseException\n'
+                  )
+
+                  text = ''.join(lines)
+
+              p.write_text(text)
+              print("Firebase OTP callback checked.")
+
           PY
 
       - name: Clean project
@@ -132,13 +200,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: 'current'
+          gradle-version: '9.8.0'
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
+
           gradle --no-daemon :app:assembleDebug --stacktrace
 
       - name: Upload APK
