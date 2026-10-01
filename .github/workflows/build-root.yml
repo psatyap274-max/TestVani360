@@ -34,6 +34,9 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+          echo "Android project found at:"
+          echo "$PROJECT_DIR"
+
       - name: Migrate project to built-in Kotlin
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
@@ -46,7 +49,6 @@ jobs:
 
           root = Path(".")
 
-          # Remove old Kotlin Android plugin from all Gradle files.
           for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
               text = p.read_text()
 
@@ -66,7 +68,6 @@ jobs:
 
               p.write_text(text)
 
-          # Remove old Kotlin Android plugin declaration from version catalog.
           for p in root.rglob("libs.versions.toml"):
               text = p.read_text()
 
@@ -79,11 +80,11 @@ jobs:
 
               p.write_text(text)
 
-          # Ensure built-in Kotlin is enabled.
           gp = root / "gradle.properties"
 
           if gp.exists():
               text = gp.read_text()
+
               text = re.sub(
                   r'^[ \t]*android\.builtInKotlin[ \t]*=[^\n]*\n?',
                   '',
@@ -96,7 +97,6 @@ jobs:
           text = text.rstrip() + "\nandroid.builtInKotlin=true\n"
           gp.write_text(text)
 
-          # Remove legacy android.kotlinOptions block if present.
           for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
               text = p.read_text()
 
@@ -109,7 +109,6 @@ jobs:
 
               p.write_text(text)
 
-          # Remove any remaining direct Kotlin Android plugin references.
           remaining = []
 
           for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
@@ -119,7 +118,9 @@ jobs:
 
           if remaining:
               print("\n".join(remaining))
-              raise SystemExit("Old Kotlin Android plugin reference still exists.")
+              raise SystemExit(
+                  "Old Kotlin Android plugin reference still exists."
+              )
 
           print("Built-in Kotlin migration completed.")
           PY
@@ -134,7 +135,9 @@ jobs:
           from pathlib import Path
           import re
 
-          p = Path("app/src/main/java/com/testvaani360/app/AccountManager.kt")
+          p = Path(
+              "app/src/main/java/com/testvaani360/app/AccountManager.kt"
+          )
 
           if not p.exists():
               print("AccountManager.kt not found; skipping Firebase callback patch.")
@@ -168,8 +171,8 @@ jobs:
                   text = ''.join(lines)
 
               p.write_text(text)
-              print("Firebase OTP callback checked.")
 
+              print("Firebase OTP callback checked.")
           PY
 
       - name: Clean project
@@ -202,13 +205,71 @@ jobs:
         with:
           gradle-version: '9.8.0'
 
+      - name: Show project files
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          echo "===== Gradle files ====="
+          find . -maxdepth 3 \
+            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -print
+
+          echo ""
+          echo "===== Kotlin source files ====="
+          find app/src/main -name "*.kt" -print
+
+      - name: Find exact Kotlin compilation error
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set +e
+
+          echo "===== STARTING KOTLIN COMPILATION ====="
+
+          gradle --no-daemon \
+            :app:compileDebugKotlin \
+            --stacktrace \
+            --info \
+            --warning-mode all 2>&1 | tee kotlin-build.log
+
+          status=${PIPESTATUS[0]}
+
+          echo ""
+          echo "========================================"
+          echo "       KOTLIN ERROR SUMMARY"
+          echo "========================================"
+
+          echo ""
+          echo "----- Compiler errors -----"
+
+          grep -n -E \
+            "e: |error:|Unresolved reference|Type mismatch|overrides nothing|does not implement|Expecting|Cannot access|Conflicting overloads|No value passed|Too many arguments|Unresolved" \
+            kotlin-build.log | tail -n 100 || true
+
+          echo ""
+          echo "----- Gradle failure -----"
+
+          grep -n -A15 -B5 \
+            -E "What went wrong:|FAILURE:|Execution failed for task|Caused by:" \
+            kotlin-build.log | tail -n 150 || true
+
+          echo ""
+          echo "========================================"
+          echo "       END ERROR SUMMARY"
+          echo "========================================"
+
+          exit "$status"
+
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
 
-          gradle --no-daemon :app:assembleDebug --stacktrace
+          gradle --no-daemon \
+            :app:assembleDebug \
+            --stacktrace \
+            --warning-mode all
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
