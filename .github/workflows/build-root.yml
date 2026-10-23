@@ -43,6 +43,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install Gradle 9.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            https://services.gradle.org/distributions/gradle-9.5-bin.zip \
+            -o /tmp/gradle-9.5-bin.zip
+          unzip -q /tmp/gradle-9.5-bin.zip -d /tmp
+          echo "/tmp/gradle-9.5/bin" >> "$GITHUB_PATH"
+          /tmp/gradle-9.5/bin/gradle --version
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -149,8 +160,6 @@ jobs:
               content = content[:match.start()] + fix_script + content[match.start():]
               html_path.write_text(content)
 
-          print("Splash startup fix inserted.")
-
           manifest_path = Path("app/src/main/AndroidManifest.xml")
           if not manifest_path.exists():
               raise SystemExit("AndroidManifest.xml not found")
@@ -162,23 +171,17 @@ jobs:
 
           app_tag = app_match.group(0)
 
-          if re.search(r'\bandroid:icon="[^"]*"', app_tag):
-              app_tag = re.sub(
-                  r'\bandroid:icon="[^"]*"',
-                  'android:icon="@drawable/ic_testvaani"',
-                  app_tag
-              )
-          else:
-              app_tag = app_tag[:-1] + ' android:icon="@drawable/ic_testvaani">'
+          app_tag = re.sub(
+              r'\bandroid:icon="[^"]*"',
+              'android:icon="@drawable/ic_testvaani"',
+              app_tag
+          ) if re.search(r'\bandroid:icon="[^"]*"', app_tag) else app_tag[:-1] + ' android:icon="@drawable/ic_testvaani">'
 
-          if re.search(r'\bandroid:roundIcon="[^"]*"', app_tag):
-              app_tag = re.sub(
-                  r'\bandroid:roundIcon="[^"]*"',
-                  'android:roundIcon="@drawable/ic_testvaani"',
-                  app_tag
-              )
-          else:
-              app_tag = app_tag[:-1] + ' android:roundIcon="@drawable/ic_testvaani">'
+          app_tag = re.sub(
+              r'\bandroid:roundIcon="[^"]*"',
+              'android:roundIcon="@drawable/ic_testvaani"',
+              app_tag
+          ) if re.search(r'\bandroid:roundIcon="[^"]*"', app_tag) else app_tag[:-1] + ' android:roundIcon="@drawable/ic_testvaani">'
 
           manifest = manifest[:app_match.start()] + app_tag + manifest[app_match.end():]
           manifest_path.write_text(manifest)
@@ -192,60 +195,23 @@ jobs:
               android:height="48dp"
               android:viewportWidth="48"
               android:viewportHeight="48">
-              <path
-                  android:fillColor="#673AB7"
-                  android:pathData="M0,0h48v48h-48z"/>
-              <path
-                  android:fillColor="#FFFFFF"
-                  android:pathData="M8,11c6,-2 11,-1 16,3c5,-4 10,-5 16,-3v25c-6,-2 -11,-1 -16,3c-5,-4 -10,-5 -16,-3z"/>
-              <path
-                  android:fillColor="#673AB7"
-                  android:pathData="M23,15h2v20h-2z"/>
+              <path android:fillColor="#673AB7" android:pathData="M0,0h48v48h-48z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M8,11c6,-2 11,-1 16,3c5,-4 10,-5 16,-3v25c-6,-2 -11,-1 -16,3c-5,-4 -10,-5 -16,-3z"/>
+              <path android:fillColor="#673AB7" android:pathData="M23,15h2v20h-2z"/>
           </vector>
           '''
 
           (drawable_dir / "ic_testvaani.xml").write_text(icon)
-          print("App icon configured.")
+          print("Splash and icon fixes applied.")
           PY
 
-      - name: Use compatible Gradle 9.5
+      - name: Build debug APK with Gradle 9.5
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("gradle/wrapper/gradle-wrapper.properties")
-          if not p.exists():
-              raise SystemExit("Gradle wrapper properties file not found")
-
-          content = p.read_text()
-          updated, count = re.subn(
-              r"gradle-[0-9][^/]*?-(bin|all)\.zip",
-              r"gradle-9.5-\1.zip",
-              content
-          )
-
-          if count == 0:
-              raise SystemExit("Could not locate Gradle distribution URL")
-
-          p.write_text(updated)
-          print("Gradle wrapper set to 9.5")
-          PY
-
-      - name: Build debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew --no-daemon :app:assembleDebug
-          else
-            gradle --no-daemon :app:assembleDebug
-          fi
+          gradle --version
+          gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         working-directory: ${{ env.PROJECT_DIR }}
