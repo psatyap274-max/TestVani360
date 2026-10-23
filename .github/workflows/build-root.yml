@@ -57,15 +57,21 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+
           files = list(Path(".").rglob("AccountManager.kt"))
           if not files:
               raise SystemExit("AccountManager.kt not found")
+
           for p in files:
               text = p.read_text()
               pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
               text, count = re.subn(pattern, r'\1FirebaseException\2', text)
-              if count == 0 and not re.search(r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException', text):
+
+              if count == 0 and not re.search(
+                  r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException', text
+              ):
                   raise SystemExit(f"Could not patch callback in {p}")
+
               if "import com.google.firebase.FirebaseException" not in text:
                   lines = text.splitlines(True)
                   for i, line in enumerate(lines):
@@ -73,41 +79,28 @@ jobs:
                           lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
                           break
                   text = "".join(lines)
+
               p.write_text(text)
           PY
 
-      - name: Fix duplicate Kotlin plugin for AGP 9
+      - name: Configure AGP 9 Kotlin compatibility
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          p = Path("app/build.gradle.kts")
-          if not p.exists():
-              raise SystemExit("app/build.gradle.kts not found")
-          text = p.read_text()
-          patterns = [
-              r'^\s*id\s*\(\s*["\']org\.jetbrains\.kotlin\.android["\']\s*\)\s*(?:version\s*\([^\n]*\))?\s*\n',
-              r'^\s*id\s*\(\s*["\']kotlin-android["\']\s*\)\s*\n',
-              r'^\s*alias\s*\(\s*libs\.plugins\.kotlin\.android\s*\)\s*\n',
-          ]
-          updated = text
-          removed = 0
-          for pattern in patterns:
-              updated, count = re.subn(pattern, "", updated, flags=re.MULTILINE)
-              removed += count
-          if removed == 0:
-              raise SystemExit("Kotlin plugin declaration not found; stopping safely")
-          p.write_text(updated)
-          print(f"Removed {removed} Kotlin plugin declaration(s)")
-          PY
+          PROPS="gradle.properties"
+          touch "$PROPS"
+
+          if grep -q '^android.builtInKotlin=' "$PROPS"; then
+            sed -i 's/^android.builtInKotlin=.*/android.builtInKotlin=false/' "$PROPS"
+          else
+            echo 'android.builtInKotlin=false' >> "$PROPS"
+          fi
 
       - name: Show Gradle configuration
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          find . -maxdepth 3 \( -name "*.gradle" -o -name "*.gradle.kts" \) -print
+          find . -maxdepth 3 \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle.properties" \) -print
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
