@@ -109,13 +109,23 @@ jobs:
 
               if "import com.google.firebase.FirebaseException" not in text:
                   lines = text.splitlines(True)
+                  inserted = False
+
                   for i, line in enumerate(lines):
                       if line.startswith("package "):
                           lines.insert(
                               i + 1,
                               "import com.google.firebase.FirebaseException\n"
                           )
+                          inserted = True
                           break
+
+                  if not inserted:
+                      lines.insert(
+                          0,
+                          "import com.google.firebase.FirebaseException\n"
+                      )
+
                   text = "".join(lines)
 
               p.write_text(text)
