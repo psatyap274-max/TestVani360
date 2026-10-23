@@ -43,16 +43,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle 9.5
+      - name: Install Gradle 9.5.0
         shell: bash
         run: |
           set -euo pipefail
           curl -fL --retry 3 \
-            https://services.gradle.org/distributions/gradle-9.5-bin.zip \
-            -o /tmp/gradle-9.5-bin.zip
-          unzip -q /tmp/gradle-9.5-bin.zip -d /tmp
-          echo "/tmp/gradle-9.5/bin" >> "$GITHUB_PATH"
-          /tmp/gradle-9.5/bin/gradle --version
+            https://services.gradle.org/distributions/gradle-9.5.0-bin.zip \
+            -o /tmp/gradle-9.5.0-bin.zip
+          unzip -q /tmp/gradle-9.5.0-bin.zip -d /tmp
+          echo "/tmp/gradle-9.5.0/bin" >> "$GITHUB_PATH"
+          /tmp/gradle-9.5.0/bin/gradle --version
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -205,13 +205,13 @@ jobs:
           print("Splash and icon fixes applied.")
           PY
 
-      - name: Build debug APK with Gradle 9.5
+      - name: Build debug APK with Gradle 9.5.0
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          gradle --version
-          gradle --no-daemon :app:assembleDebug
+          /tmp/gradle-9.5.0/bin/gradle --version
+          /tmp/gradle-9.5.0/bin/gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
         working-directory: ${{ env.PROJECT_DIR }}
