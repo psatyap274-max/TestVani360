@@ -83,7 +83,7 @@ jobs:
               p.write_text(text)
           PY
 
-      - name: Configure AGP 9 Kotlin compatibility
+      - name: Configure AGP 9 compatibility
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -91,11 +91,16 @@ jobs:
           PROPS="gradle.properties"
           touch "$PROPS"
 
-          if grep -q '^android.builtInKotlin=' "$PROPS"; then
-            sed -i 's/^android.builtInKotlin=.*/android.builtInKotlin=false/' "$PROPS"
-          else
-            echo 'android.builtInKotlin=false' >> "$PROPS"
-          fi
+          for KEY in android.builtInKotlin android.newDsl; do
+            if grep -q "^${KEY}=" "$PROPS"; then
+              sed -i "s|^${KEY}=.*|${KEY}=false|" "$PROPS"
+            else
+              echo "${KEY}=false" >> "$PROPS"
+            fi
+          done
+
+          echo "Applied AGP compatibility settings:"
+          grep -E '^(android\.builtInKotlin|android\.newDsl)=' "$PROPS"
 
       - name: Show Gradle configuration
         working-directory: ${{ env.PROJECT_DIR }}
