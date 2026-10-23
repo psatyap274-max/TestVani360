@@ -1,3 +1,4 @@
+
 name: Build TestVaani 360 APK
 
 on:
@@ -7,9 +8,13 @@ on:
       - 'TestVaani360_CloudAutoSync_v5_GitHubBuild.zip'
       - '.github/workflows/build-root.yml'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -20,110 +25,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          rm -rf project
-          mkdir project
+          ZIP="TestVaani360_CloudAutoSync_v5_GitHubBuild.zip"
 
-          unzip -q TestVaani360_CloudAutoSync_v5_GitHubBuild.zip -d project
+          if [ ! -f "$ZIP" ]; then
+            echo "ERROR: Android project ZIP not found: $ZIP"
+            exit 1
+          fi
+
+          mkdir -p project
+          unzip -q "$ZIP" -d project
 
           PROJECT_DIR="$(find project -name settings.gradle.kts -print -quit | xargs -r dirname)"
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Android project not found"
+            PROJECT_DIR="$(find project -name settings.gradle -print -quit | xargs -r dirname)"
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Gradle Android project not found in ZIP."
+            find project -maxdepth 4 -type f | head -100
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT_DIR"
 
-          echo "Android project found at:"
-          echo "$PROJECT_DIR"
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      - name: Migrate project to built-in Kotlin
-        working-directory: ${{ env.PROJECT_DIR }}
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path(".")
-
-          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
-              text = p.read_text()
-
-              text = re.sub(
-                  r'^[ \t]*(?:id\(["\']org\.jetbrains\.kotlin\.android["\']\)|id[ \t]+["\']org\.jetbrains\.kotlin\.android["\'](?:[ \t]+version[^\n]*)?)[^\n]*\n',
-                  '',
-                  text,
-                  flags=re.MULTILINE
-              )
-
-              text = re.sub(
-                  r'^[ \t]*alias\(libs\.plugins\.kotlin\.android\)[^\n]*\n',
-                  '',
-                  text,
-                  flags=re.MULTILINE
-              )
-
-              p.write_text(text)
-
-          for p in root.rglob("libs.versions.toml"):
-              text = p.read_text()
-
-              text = re.sub(
-                  r'^[ \t]*kotlin-android[ \t]*=[^\n]*\n',
-                  '',
-                  text,
-                  flags=re.MULTILINE
-              )
-
-              p.write_text(text)
-
-          gp = root / "gradle.properties"
-
-          if gp.exists():
-              text = gp.read_text()
-
-              text = re.sub(
-                  r'^[ \t]*android\.builtInKotlin[ \t]*=[^\n]*\n?',
-                  '',
-                  text,
-                  flags=re.MULTILINE
-              )
-          else:
-              text = ""
-
-          text = text.rstrip() + "\nandroid.builtInKotlin=true\n"
-          gp.write_text(text)
-
-          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
-              text = p.read_text()
-
-              text = re.sub(
-                  r'\n[ \t]*kotlinOptions[ \t]*\{[^{}]*\}',
-                  '',
-                  text,
-                  flags=re.DOTALL
-              )
-
-              p.write_text(text)
-
-          remaining = []
-
-          for p in list(root.rglob("*.gradle.kts")) + list(root.rglob("*.gradle")):
-              for i, line in enumerate(p.read_text().splitlines(), 1):
-                  if "org.jetbrains.kotlin.android" in line:
-                      remaining.append(f"{p}:{i}: {line}")
-
-          if remaining:
-              print("\n".join(remaining))
-              raise SystemExit(
-                  "Old Kotlin Android plugin reference still exists."
-              )
-
-          print("Built-in Kotlin migration completed.")
-          PY
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses || true
 
       - name: Fix Firebase OTP callback
         working-directory: ${{ env.PROJECT_DIR }}
@@ -135,130 +76,63 @@ jobs:
           from pathlib import Path
           import re
 
-          p = Path(
-              "app/src/main/java/com/testvaani360/app/AccountManager.kt"
-          )
+          files = list(Path(".").rglob("AccountManager.kt"))
 
-          if not p.exists():
-              print("AccountManager.kt not found; skipping Firebase callback patch.")
-          else:
+          if not files:
+              raise SystemExit("ERROR: AccountManager.kt not found")
+
+          for p in files:
               text = p.read_text()
 
-              text = re.sub(
-                  r'onVerificationFailed\s*\(\s*exception\s*:\s*Exception\s*\)',
-                  'onVerificationFailed(exception: FirebaseException)',
+              pattern = (
+                  r'(override\s+fun\s+onVerificationFailed'
+                  r'\s*\(\s*\w+\s*:\s*)[^)]+(\))'
+              )
+
+              text, count = re.subn(
+                  pattern,
+                  r'\1FirebaseException\2',
                   text
               )
 
-              if (
-                  'import com.google.firebase.FirebaseException'
-                  not in text
-                  and 'FirebaseException' in text
-              ):
-                  lines = text.splitlines(True)
-                  pos = 0
-
-                  for i, line in enumerate(lines):
-                      if line.startswith("package "):
-                          pos = i + 1
-                          break
-
-                  lines.insert(
-                      pos,
-                      'import com.google.firebase.FirebaseException\n'
+              if count == 0:
+                  already_fixed = re.search(
+                      r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException',
+                      text
                   )
 
-                  text = ''.join(lines)
+                  if not already_fixed:
+                      raise SystemExit(
+                          f"ERROR: Could not patch callback in {p}"
+                      )
+
+              if "import com.google.firebase.FirebaseException" not in text:
+                  lines = text.splitlines(True)
+                  for i, line in enumerate(lines):
+                      if line.startswith("package "):
+                          lines.insert(
+                              i + 1,
+                              "import com.google.firebase.FirebaseException\n"
+                          )
+                          break
+                  text = "".join(lines)
 
               p.write_text(text)
+              print(f"Firebase callback checked: {p}")
 
-              print("Firebase OTP callback checked.")
+          print("Firebase callback patch completed.")
           PY
 
-      - name: Clean project
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          rm -rf .gradle
-          rm -rf build
-          rm -rf app/build
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Check Android SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
-
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.8.0'
-
-      - name: Show project files
+      - name: Show project configuration
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           echo "===== Gradle files ====="
           find . -maxdepth 3 \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -print
+            \( -name "*.gradle" -o -name "*.gradle.kts" \) -print
 
-          echo ""
-          echo "===== Kotlin source files ====="
-          find app/src/main -name "*.kt" -print
-
-      - name: Find exact Kotlin compilation error
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set +e
-
-          echo "===== STARTING KOTLIN COMPILATION ====="
-
-          gradle --no-daemon \
-            :app:compileDebugKotlin \
-            --stacktrace \
-            --info \
-            --warning-mode all 2>&1 | tee kotlin-build.log
-
-          status=${PIPESTATUS[0]}
-
-          echo ""
-          echo "========================================"
-          echo "       KOTLIN ERROR SUMMARY"
-          echo "========================================"
-
-          echo ""
-          echo "----- Compiler errors -----"
-
-          grep -n -E \
-            "e: |error:|Unresolved reference|Type mismatch|overrides nothing|does not implement|Expecting|Cannot access|Conflicting overloads|No value passed|Too many arguments|Unresolved" \
-            kotlin-build.log | tail -n 100 || true
-
-          echo ""
-          echo "----- Gradle failure -----"
-
-          grep -n -A15 -B5 \
-            -E "What went wrong:|FAILURE:|Execution failed for task|Caused by:" \
-            kotlin-build.log | tail -n 150 || true
-
-          echo ""
-          echo "========================================"
-          echo "       END ERROR SUMMARY"
-          echo "========================================"
-
-          exit "$status"
+          echo "===== Kotlin files ====="
+          find app/src/main -name "*.kt" -print || true
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
@@ -266,15 +140,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          gradle --no-daemon \
-            :app:assembleDebug \
-            --stacktrace \
-            --warning-mode all
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon :app:assembleDebug
+          else
+            gradle --no-daemon :app:assembleDebug
+          fi
+
+      - name: Verify APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK generated successfully:"
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-debug-apk
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
