@@ -28,10 +28,12 @@ jobs:
           test -f "$ZIP" || { echo "Project ZIP missing"; exit 1; }
           mkdir -p project
           unzip -q "$ZIP" -d project
+
           PROJECT_DIR="$(find project -name settings.gradle.kts -print -quit | xargs -r dirname)"
           if [ -z "$PROJECT_DIR" ]; then
             PROJECT_DIR="$(find project -name settings.gradle -print -quit | xargs -r dirname)"
           fi
+
           test -n "$PROJECT_DIR" || { echo "Gradle project not found"; exit 1; }
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
@@ -65,10 +67,13 @@ jobs:
           for p in files:
               text = p.read_text()
               pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
-              text, count = re.subn(pattern, r'\1FirebaseException\2', text)
+              text, count = re.subn(
+                  pattern, r'\1FirebaseException\2', text
+              )
 
               if count == 0 and not re.search(
-                  r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException', text
+                  r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException',
+                  text
               ):
                   raise SystemExit(f"Could not patch callback in {p}")
 
@@ -76,36 +81,134 @@ jobs:
                   lines = text.splitlines(True)
                   for i, line in enumerate(lines):
                       if line.startswith("package "):
-                          lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
+                          lines.insert(
+                              i + 1,
+                              "import com.google.firebase.FirebaseException\n"
+                          )
                           break
                   text = "".join(lines)
 
               p.write_text(text)
           PY
 
-      - name: Configure AGP 9 compatibility
+      - name: Configure AGP compatibility
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          PROPS="gradle.properties"
-          touch "$PROPS"
+          touch gradle.properties
 
           for KEY in android.builtInKotlin android.newDsl; do
-            if grep -q "^${KEY}=" "$PROPS"; then
-              sed -i "s|^${KEY}=.*|${KEY}=false|" "$PROPS"
+            if grep -q "^${KEY}=" gradle.properties; then
+              sed -i "s|^${KEY}=.*|${KEY}=false|" gradle.properties
             else
-              echo "${KEY}=false" >> "$PROPS"
+              echo "${KEY}=false" >> gradle.properties
             fi
           done
 
-          echo "Applied AGP compatibility settings:"
-          grep -E '^(android\.builtInKotlin|android\.newDsl)=' "$PROPS"
-
-      - name: Show Gradle configuration
+      - name: Fix splash screen and app icon
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          find . -maxdepth 3 \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle.properties" \) -print
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          html_files = list(Path("app/src/main/assets").glob("index.html"))
+          if not html_files:
+              raise SystemExit("index.html not found")
+
+          html_path = html_files[0]
+          content = html_path.read_text()
+
+          fix_script = """
+          <script id="testvaani-startup-fix">
+          (function () {
+            function hideSplash() {
+              var splash = document.getElementById('splash');
+              if (splash) {
+                splash.classList.add('hide');
+                splash.setAttribute('aria-hidden', 'true');
+              }
+            }
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', function () {
+                setTimeout(hideSplash, 1800);
+              }, { once: true });
+            } else {
+              setTimeout(hideSplash, 1800);
+            }
+            setTimeout(hideSplash, 3500);
+          })();
+          </script>
+          """
+
+          if 'id="testvaani-startup-fix"' not in content:
+              match = re.search(r"</body\s*>", content, re.IGNORECASE)
+              if not match:
+                  raise SystemExit("Could not find closing body tag in index.html")
+              content = content[:match.start()] + fix_script + content[match.start():]
+              html_path.write_text(content)
+
+          print("Splash startup fix inserted.")
+
+          manifest_path = Path("app/src/main/AndroidManifest.xml")
+          if not manifest_path.exists():
+              raise SystemExit("AndroidManifest.xml not found")
+
+          manifest = manifest_path.read_text()
+          app_match = re.search(r"<application\b[^>]*>", manifest)
+          if not app_match:
+              raise SystemExit("Could not find application tag in manifest")
+
+          app_tag = app_match.group(0)
+
+          if re.search(r'\bandroid:icon="[^"]*"', app_tag):
+              app_tag = re.sub(
+                  r'\bandroid:icon="[^"]*"',
+                  'android:icon="@drawable/ic_testvaani"',
+                  app_tag
+              )
+          else:
+              app_tag = app_tag[:-1] + ' android:icon="@drawable/ic_testvaani">'
+
+          if re.search(r'\bandroid:roundIcon="[^"]*"', app_tag):
+              app_tag = re.sub(
+                  r'\bandroid:roundIcon="[^"]*"',
+                  'android:roundIcon="@drawable/ic_testvaani"',
+                  app_tag
+              )
+          else:
+              app_tag = app_tag[:-1] + ' android:roundIcon="@drawable/ic_testvaani">'
+
+          manifest = manifest[:app_match.start()] + app_tag + manifest[app_match.end():]
+          manifest_path.write_text(manifest)
+
+          drawable_dir = Path("app/src/main/res/drawable")
+          drawable_dir.mkdir(parents=True, exist_ok=True)
+
+          icon = '''<?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="48dp"
+              android:height="48dp"
+              android:viewportWidth="48"
+              android:viewportHeight="48">
+              <path
+                  android:fillColor="#673AB7"
+                  android:pathData="M0,0h48v48h-48z"/>
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M8,11c6,-2 11,-1 16,3c5,-4 10,-5 16,-3v25c-6,-2 -11,-1 -16,3c-5,-4 -10,-5 -16,-3z"/>
+              <path
+                  android:fillColor="#673AB7"
+                  android:pathData="M23,15h2v20h-2z"/>
+          </vector>
+          '''
+
+          (drawable_dir / "ic_testvaani.xml").write_text(icon)
+          print("App icon configured.")
+          PY
 
       - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
