@@ -67,9 +67,7 @@ jobs:
           for p in files:
               text = p.read_text()
               pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
-              text, count = re.subn(
-                  pattern, r'\1FirebaseException\2', text
-              )
+              text, count = re.subn(pattern, r'\1FirebaseException\2', text)
 
               if count == 0 and not re.search(
                   r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException',
@@ -208,6 +206,33 @@ jobs:
 
           (drawable_dir / "ic_testvaani.xml").write_text(icon)
           print("App icon configured.")
+          PY
+
+      - name: Use compatible Gradle 9.5
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("gradle/wrapper/gradle-wrapper.properties")
+          if not p.exists():
+              raise SystemExit("Gradle wrapper properties file not found")
+
+          content = p.read_text()
+          updated, count = re.subn(
+              r"gradle-[0-9][^/]*?-(bin|all)\.zip",
+              r"gradle-9.5-\1.zip",
+              content
+          )
+
+          if count == 0:
+              raise SystemExit("Could not locate Gradle distribution URL")
+
+          p.write_text(updated)
+          print("Gradle wrapper set to 9.5")
           PY
 
       - name: Build debug APK
