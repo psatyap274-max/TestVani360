@@ -25,16 +25,14 @@ jobs:
         run: |
           set -euo pipefail
           ZIP="TestVaani360_CloudAutoSync_v6_Click_Icon_Fix-1.zip"
-          test -f "$ZIP" || { echo "Project ZIP missing"; exit 1; }
+          test -f "$ZIP"
           mkdir -p project
           unzip -q "$ZIP" -d project
-
           PROJECT_DIR="$(find project -name settings.gradle.kts -print -quit | xargs -r dirname)"
           if [ -z "$PROJECT_DIR" ]; then
             PROJECT_DIR="$(find project -name settings.gradle -print -quit | xargs -r dirname)"
           fi
-
-          test -n "$PROJECT_DIR" || { echo "Gradle project not found"; exit 1; }
+          test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Setup Java 17
@@ -47,12 +45,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 \
-            https://services.gradle.org/distributions/gradle-9.5.0-bin.zip \
-            -o /tmp/gradle-9.5.0-bin.zip
-          unzip -q /tmp/gradle-9.5.0-bin.zip -d /tmp
+          curl -fL --retry 3 https://services.gradle.org/distributions/gradle-9.5.0-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
           echo "/tmp/gradle-9.5.0/bin" >> "$GITHUB_PATH"
-          /tmp/gradle-9.5.0/bin/gradle --version
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -79,24 +74,15 @@ jobs:
               text = p.read_text()
               pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
               text, count = re.subn(pattern, r'\1FirebaseException\2', text)
-
-              if count == 0 and not re.search(
-                  r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException',
-                  text
-              ):
+              if count == 0 and not re.search(r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException', text):
                   raise SystemExit(f"Could not patch callback in {p}")
-
               if "import com.google.firebase.FirebaseException" not in text:
                   lines = text.splitlines(True)
                   for i, line in enumerate(lines):
                       if line.startswith("package "):
-                          lines.insert(
-                              i + 1,
-                              "import com.google.firebase.FirebaseException\n"
-                          )
+                          lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
                           break
                   text = "".join(lines)
-
               p.write_text(text)
           PY
 
@@ -106,7 +92,6 @@ jobs:
         run: |
           set -euo pipefail
           touch gradle.properties
-
           for KEY in android.builtInKotlin android.newDsl; do
             if grep -q "^${KEY}=" gradle.properties; then
               sed -i "s|^${KEY}=.*|${KEY}=false|" gradle.properties
@@ -115,7 +100,7 @@ jobs:
             fi
           done
 
-      - name: Fix splash screen and app icon
+      - name: Fix splash screen, icon and app name
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -156,7 +141,7 @@ jobs:
           if 'id="testvaani-startup-fix"' not in content:
               match = re.search(r"</body\s*>", content, re.IGNORECASE)
               if not match:
-                  raise SystemExit("Could not find closing body tag in index.html")
+                  raise SystemExit("Could not find closing body tag")
               content = content[:match.start()] + fix_script + content[match.start():]
               html_path.write_text(content)
 
@@ -167,21 +152,20 @@ jobs:
           manifest = manifest_path.read_text()
           app_match = re.search(r"<application\b[^>]*>", manifest)
           if not app_match:
-              raise SystemExit("Could not find application tag in manifest")
+              raise SystemExit("Could not find application tag")
 
           app_tag = app_match.group(0)
 
-          app_tag = re.sub(
-              r'\bandroid:icon="[^"]*"',
-              'android:icon="@drawable/ic_testvaani"',
-              app_tag
-          ) if re.search(r'\bandroid:icon="[^"]*"', app_tag) else app_tag[:-1] + ' android:icon="@drawable/ic_testvaani">'
+          def set_attr(tag, name, value):
+              pattern = r'\bandroid:' + name + r'="[^"]*"'
+              replacement = 'android:' + name + '="' + value + '"'
+              if re.search(pattern, tag):
+                  return re.sub(pattern, replacement, tag)
+              return tag[:-1] + ' ' + replacement + '>'
 
-          app_tag = re.sub(
-              r'\bandroid:roundIcon="[^"]*"',
-              'android:roundIcon="@drawable/ic_testvaani"',
-              app_tag
-          ) if re.search(r'\bandroid:roundIcon="[^"]*"', app_tag) else app_tag[:-1] + ' android:roundIcon="@drawable/ic_testvaani">'
+          app_tag = set_attr(app_tag, "label", "TestVaani 360")
+          app_tag = set_attr(app_tag, "icon", "@drawable/ic_testvaani")
+          app_tag = set_attr(app_tag, "roundIcon", "@drawable/ic_testvaani")
 
           manifest = manifest[:app_match.start()] + app_tag + manifest[app_match.end():]
           manifest_path.write_text(manifest)
@@ -200,17 +184,15 @@ jobs:
               <path android:fillColor="#673AB7" android:pathData="M23,15h2v20h-2z"/>
           </vector>
           '''
-
           (drawable_dir / "ic_testvaani.xml").write_text(icon)
-          print("Splash and icon fixes applied.")
+          print("App label set to TestVaani 360")
           PY
 
-      - name: Build debug APK with Gradle 9.5.0
+      - name: Build debug APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          /tmp/gradle-9.5.0/bin/gradle --version
           /tmp/gradle-9.5.0/bin/gradle --no-daemon :app:assembleDebug
 
       - name: Verify APK
