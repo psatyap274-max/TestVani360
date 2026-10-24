@@ -146,43 +146,7 @@ jobs:
               <path android:fillColor="#FFC928" android:pathData="M8,34h32v4h-32z"/>
           </vector>
           ''')
-          print("App label set to TEST VANI 360")
-          PY
-
-      - name: Set standard mock test timer to 3 minutes
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("app/src/main/assets/index.html")
-          if not p.exists():
-              raise SystemExit("index.html not found")
-
-          s = p.read_text()
-          original = s
-
-          # Only change common 300-second timer declarations.
-          patterns = [
-              (r'(\b(?:timeLeft|timeRemaining|testTime|duration|timeLimit)\s*[:=]\s*)300\b', r'\g<1>180'),
-              (r'(\b(?:timeLeft|timeRemaining|testTime|duration|timeLimit)\s*[:=]\s*)5\s*\*\s*60\b', r'\g<1>180'),
-              (r'(\b(?:timer|countdown)\s*\(\s*)300\s*(\))', r'\g<1>180\2'),
-          ]
-
-          for pattern, replacement in patterns:
-              s = re.sub(pattern, replacement, s)
-
-          if s == original:
-              raise SystemExit(
-                  "Timer pattern not found. No timer change was made; "
-                  "inspect the actual test timer code before building."
-              )
-
-          p.write_text(s)
-          print("Updated a recognized 300-second timer declaration to 180 seconds.")
+          print("App label and launcher icon configured")
           PY
 
       - name: Build debug APK
