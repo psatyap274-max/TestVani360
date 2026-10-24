@@ -1,5 +1,5 @@
 
-name: Build TestVaani 360 APK
+name: Build TEST VANI 360 APK
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle 9.5.0
+      - name: Install Gradle
         shell: bash
         run: |
           set -euo pipefail
@@ -57,7 +57,7 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Fix Firebase OTP callback
+      - name: Fix Firebase callback compatibility
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -71,22 +71,23 @@ jobs:
               raise SystemExit("AccountManager.kt not found")
 
           for p in files:
-              text = p.read_text()
+              s = p.read_text()
               pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
-              text, count = re.subn(pattern, r'\1FirebaseException\2', text)
-              if count == 0 and not re.search(r'onVerificationFailed\s*\(\s*\w+\s*:\s*FirebaseException', text):
-                  raise SystemExit(f"Could not patch callback in {p}")
-              if "import com.google.firebase.FirebaseException" not in text:
-                  lines = text.splitlines(True)
-                  for i, line in enumerate(lines):
-                      if line.startswith("package "):
-                          lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
-                          break
-                  text = "".join(lines)
-              p.write_text(text)
+              s, count = re.subn(pattern, r'\1FirebaseException\2', s)
+              if count:
+                  if "import com.google.firebase.FirebaseException" not in s:
+                      lines = s.splitlines(True)
+                      for i, line in enumerate(lines):
+                          if line.startswith("package "):
+                              lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
+                              break
+                      s = "".join(lines)
+                  p.write_text(s)
+
+          print("Firebase callback compatibility check completed")
           PY
 
-      - name: Configure AGP compatibility
+      - name: Configure Gradle compatibility
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -100,7 +101,7 @@ jobs:
             fi
           done
 
-      - name: Fix splash screen, icon and app name
+      - name: Set app label and launcher icon
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
@@ -109,83 +110,79 @@ jobs:
           from pathlib import Path
           import re
 
-          html_files = list(Path("app/src/main/assets").glob("index.html"))
-          if not html_files:
-              raise SystemExit("index.html not found")
-
-          html_path = html_files[0]
-          content = html_path.read_text()
-
-          fix_script = """
-          <script id="testvaani-startup-fix">
-          (function () {
-            function hideSplash() {
-              var splash = document.getElementById('splash');
-              if (splash) {
-                splash.classList.add('hide');
-                splash.setAttribute('aria-hidden', 'true');
-              }
-            }
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', function () {
-                setTimeout(hideSplash, 1800);
-              }, { once: true });
-            } else {
-              setTimeout(hideSplash, 1800);
-            }
-            setTimeout(hideSplash, 3500);
-          })();
-          </script>
-          """
-
-          if 'id="testvaani-startup-fix"' not in content:
-              match = re.search(r"</body\s*>", content, re.IGNORECASE)
-              if not match:
-                  raise SystemExit("Could not find closing body tag")
-              content = content[:match.start()] + fix_script + content[match.start():]
-              html_path.write_text(content)
-
-          manifest_path = Path("app/src/main/AndroidManifest.xml")
-          if not manifest_path.exists():
+          p = Path("app/src/main/AndroidManifest.xml")
+          if not p.exists():
               raise SystemExit("AndroidManifest.xml not found")
 
-          manifest = manifest_path.read_text()
-          app_match = re.search(r"<application\b[^>]*>", manifest)
-          if not app_match:
-              raise SystemExit("Could not find application tag")
+          s = p.read_text()
+          m = re.search(r"<application\b[^>]*>", s)
+          if not m:
+              raise SystemExit("Application tag not found")
 
-          app_tag = app_match.group(0)
+          tag = m.group(0)
 
-          def set_attr(tag, name, value):
+          def attr(tag, name, value):
               pattern = r'\bandroid:' + name + r'="[^"]*"'
-              replacement = 'android:' + name + '="' + value + '"'
-              if re.search(pattern, tag):
-                  return re.sub(pattern, replacement, tag)
-              return tag[:-1] + ' ' + replacement + '>'
+              repl = 'android:' + name + '="' + value + '"'
+              return re.sub(pattern, repl, tag) if re.search(pattern, tag) else tag[:-1] + ' ' + repl + '>'
 
-          app_tag = set_attr(app_tag, "label", "TestVaani 360")
-          app_tag = set_attr(app_tag, "icon", "@drawable/ic_testvaani")
-          app_tag = set_attr(app_tag, "roundIcon", "@drawable/ic_testvaani")
+          tag = attr(tag, "label", "TEST VANI 360")
+          tag = attr(tag, "icon", "@drawable/ic_testvaani")
+          tag = attr(tag, "roundIcon", "@drawable/ic_testvaani")
+          s = s[:m.start()] + tag + s[m.end():]
+          p.write_text(s)
 
-          manifest = manifest[:app_match.start()] + app_tag + manifest[app_match.end():]
-          manifest_path.write_text(manifest)
-
-          drawable_dir = Path("app/src/main/res/drawable")
-          drawable_dir.mkdir(parents=True, exist_ok=True)
-
-          icon = '''<?xml version="1.0" encoding="utf-8"?>
+          d = Path("app/src/main/res/drawable")
+          d.mkdir(parents=True, exist_ok=True)
+          (d / "ic_testvaani.xml").write_text('''<?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="48dp"
               android:height="48dp"
               android:viewportWidth="48"
               android:viewportHeight="48">
-              <path android:fillColor="#673AB7" android:pathData="M0,0h48v48h-48z"/>
-              <path android:fillColor="#FFFFFF" android:pathData="M8,11c6,-2 11,-1 16,3c5,-4 10,-5 16,-3v25c-6,-2 -11,-1 -16,3c-5,-4 -10,-5 -16,-3z"/>
-              <path android:fillColor="#673AB7" android:pathData="M23,15h2v20h-2z"/>
+              <path android:fillColor="#142B5C" android:pathData="M0,0h48v48h-48z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M8,9h32v4h-14v26h-4v-26h-14z"/>
+              <path android:fillColor="#FFC928" android:pathData="M8,16h32v3h-32z"/>
+              <path android:fillColor="#FFC928" android:pathData="M8,34h32v4h-32z"/>
           </vector>
-          '''
-          (drawable_dir / "ic_testvaani.xml").write_text(icon)
-          print("App label set to TestVaani 360")
+          ''')
+          print("App label set to TEST VANI 360")
+          PY
+
+      - name: Set standard mock test timer to 3 minutes
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("app/src/main/assets/index.html")
+          if not p.exists():
+              raise SystemExit("index.html not found")
+
+          s = p.read_text()
+          original = s
+
+          # Only change common 300-second timer declarations.
+          patterns = [
+              (r'(\b(?:timeLeft|timeRemaining|testTime|duration|timeLimit)\s*[:=]\s*)300\b', r'\g<1>180'),
+              (r'(\b(?:timeLeft|timeRemaining|testTime|duration|timeLimit)\s*[:=]\s*)5\s*\*\s*60\b', r'\g<1>180'),
+              (r'(\b(?:timer|countdown)\s*\(\s*)300\s*(\))', r'\g<1>180\2'),
+          ]
+
+          for pattern, replacement in patterns:
+              s = re.sub(pattern, replacement, s)
+
+          if s == original:
+              raise SystemExit(
+                  "Timer pattern not found. No timer change was made; "
+                  "inspect the actual test timer code before building."
+              )
+
+          p.write_text(s)
+          print("Updated a recognized 300-second timer declaration to 180 seconds.")
           PY
 
       - name: Build debug APK
@@ -201,12 +198,12 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
-          test -n "$APK" || { echo "APK not generated"; exit 1; }
+          test -n "$APK"
           ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-debug-apk
+          name: TEST-VANI-360-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
