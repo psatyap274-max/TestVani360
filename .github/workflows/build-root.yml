@@ -1,12 +1,11 @@
 
-name: Build TEST VANI 360 APK
+name: Build TestVaani 360 APK
 
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'TestVaani360_v11_Audited_Questions.zip'
-      - '.github/workflows/build-root.yml'
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -20,154 +19,53 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP="TestVaani360_v11_Audited_Questions.zip"
-          test -f "$ZIP"
-          mkdir -p project
-          unzip -q "$ZIP" -d project
-          PROJECT_DIR="$(find project -name settings.gradle.kts -print -quit | xargs -r dirname)"
-          if [ -z "$PROJECT_DIR" ]; then
-            PROJECT_DIR="$(find project -name settings.gradle -print -quit | xargs -r dirname)"
-          fi
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Setup Java 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Install Gradle
+      - name: Locate and extract v11 project
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 https://services.gradle.org/distributions/gradle-9.5.0-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
-          echo "/tmp/gradle-9.5.0/bin" >> "$GITHUB_PATH"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+          ZIP="TestVaani360_v11_Styled_Next_Test.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::Required v11 ZIP not found: $ZIP"
+            echo "Upload the styled v11 ZIP to the repository root."
+            exit 1
+          fi
+
+          mkdir -p project
+          unzip -q "$ZIP" -d project
+
+          PROJECT_DIR="project/TestVaani360_Android"
+
+          if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+            echo "::error::Android project files were not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          packages: platform-tools
-
-      - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Fix Firebase callback compatibility
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          files = list(Path(".").rglob("AccountManager.kt"))
-          if not files:
-              raise SystemExit("AccountManager.kt not found")
-
-          for p in files:
-              s = p.read_text()
-              pattern = r'(override\s+fun\s+onVerificationFailed\s*\(\s*\w+\s*:\s*)[^)]+(\))'
-              s, count = re.subn(pattern, r'\1FirebaseException\2', s)
-              if count:
-                  if "import com.google.firebase.FirebaseException" not in s:
-                      lines = s.splitlines(True)
-                      for i, line in enumerate(lines):
-                          if line.startswith("package "):
-                              lines.insert(i + 1, "import com.google.firebase.FirebaseException\n")
-                              break
-                      s = "".join(lines)
-                  p.write_text(s)
-
-          print("Firebase callback compatibility check completed")
-          PY
-
-      - name: Configure Gradle compatibility
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          touch gradle.properties
-          for KEY in android.builtInKotlin android.newDsl; do
-            if grep -q "^${KEY}=" gradle.properties; then
-              sed -i "s|^${KEY}=.*|${KEY}=false|" gradle.properties
-            else
-              echo "${KEY}=false" >> gradle.properties
-            fi
-          done
-
-      - name: Set app label and launcher icon
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("app/src/main/AndroidManifest.xml")
-          if not p.exists():
-              raise SystemExit("AndroidManifest.xml not found")
-
-          s = p.read_text()
-          m = re.search(r"<application\b[^>]*>", s)
-          if not m:
-              raise SystemExit("Application tag not found")
-
-          tag = m.group(0)
-
-          def attr(tag, name, value):
-              pattern = r'\bandroid:' + name + r'="[^"]*"'
-              repl = 'android:' + name + '="' + value + '"'
-              return re.sub(pattern, repl, tag) if re.search(pattern, tag) else tag[:-1] + ' ' + repl + '>'
-
-          tag = attr(tag, "label", "TEST VANI 360")
-          tag = attr(tag, "icon", "@drawable/ic_testvaani")
-          tag = attr(tag, "roundIcon", "@drawable/ic_testvaani")
-          s = s[:m.start()] + tag + s[m.end():]
-          p.write_text(s)
-
-          d = Path("app/src/main/res/drawable")
-          d.mkdir(parents=True, exist_ok=True)
-          (d / "ic_testvaani.xml").write_text('''<?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="48dp"
-              android:height="48dp"
-              android:viewportWidth="48"
-              android:viewportHeight="48">
-              <path android:fillColor="#142B5C" android:pathData="M0,0h48v48h-48z"/>
-              <path android:fillColor="#FFFFFF" android:pathData="M8,9h32v4h-14v26h-4v-26h-14z"/>
-              <path android:fillColor="#FFC928" android:pathData="M8,16h32v3h-32z"/>
-              <path android:fillColor="#FFC928" android:pathData="M8,34h32v4h-32z"/>
-          </vector>
-          ''')
-          print("App label and launcher icon configured")
-          PY
+          gradle-version: '8.13'
 
       - name: Build debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
         run: |
           set -euo pipefail
-          /tmp/gradle-9.5.0/bin/gradle --no-daemon :app:assembleDebug
-
-      - name: Verify APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
-          test -n "$APK"
-          ls -lh "$APK"
+          cd "$PROJECT_DIR"
+          gradle --no-daemon :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TEST-VANI-360-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          name: TestVaani360-v11-debug-apk
+          path: project/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
