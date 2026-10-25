@@ -1,4 +1,3 @@
-
 name: Build TestVaani 360 APK
 
 on:
@@ -12,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    name: Build TestVaani 360
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -24,7 +24,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Locate and extract v11 project
         shell: bash
@@ -34,8 +33,10 @@ jobs:
           ZIP="TestVaani360_v11_Styled_Next_Test.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "::error::Required v11 ZIP not found: $ZIP"
-            echo "Upload the styled v11 ZIP to the repository root."
+            echo "::error::ZIP not found: $ZIP"
+            echo "Upload the v11 Styled Next Test ZIP to the repository root."
+            echo "Repository files:"
+            ls -la
             exit 1
           fi
 
@@ -45,7 +46,9 @@ jobs:
           PROJECT_DIR="project/TestVaani360_Android"
 
           if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            echo "::error::Android project files were not found."
+            echo "::error::settings.gradle.kts not found in expected project folder."
+            echo "Extracted files:"
+            find project -maxdepth 4 -type f | head -200
             exit 1
           fi
 
@@ -57,10 +60,20 @@ jobs:
           gradle-version: '8.13'
 
       - name: Build debug APK
+        shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          find "$PROJECT_DIR/app/build/outputs/apk/debug" \
+            -maxdepth 1 -type f -name '*.apk' -print
+          test -n "$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
+            -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
