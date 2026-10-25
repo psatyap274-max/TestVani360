@@ -1,3 +1,4 @@
+
 name: Build TestVaani 360 APK
 
 on:
@@ -30,12 +31,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP="TestVaani360_v11_Styled_Next_Test.zip"
+          ZIP="TestVaani360_v11_Styled_Next_Test-1.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "::error::ZIP not found: $ZIP"
-            echo "Upload the v11 Styled Next Test ZIP to the repository root."
-            echo "Repository files:"
+            echo "::error::ZIP file not found: $ZIP"
+            echo "Files available in repository:"
             ls -la
             exit 1
           fi
@@ -46,8 +46,7 @@ jobs:
           PROJECT_DIR="project/TestVaani360_Android"
 
           if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            echo "::error::settings.gradle.kts not found in expected project folder."
-            echo "Extracted files:"
+            echo "::error::Android project settings file not found."
             find project -maxdepth 4 -type f | head -200
             exit 1
           fi
@@ -70,10 +69,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find "$PROJECT_DIR/app/build/outputs/apk/debug" \
-            -maxdepth 1 -type f -name '*.apk' -print
-          test -n "$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
-            -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
+          find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print
+          test -n "$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
