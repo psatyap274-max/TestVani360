@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'TestVaani360_CloudAutoSync_v6_Click_Icon_Fix-1.zip'
+      - 'TestVaani360_v11_Audited_Questions.zip'
       - '.github/workflows/build-root.yml'
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="TestVaani360_CloudAutoSync_v6_Click_Icon_Fix-1.zip"
+          ZIP="TestVaani360_v11_Audited_Questions.zip"
           test -f "$ZIP"
           mkdir -p project
           unzip -q "$ZIP" -d project
