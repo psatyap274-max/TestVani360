@@ -21,12 +21,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate and extract v11 project
+      - name: Extract v11 project
         shell: bash
         run: |
           set -euo pipefail
@@ -34,8 +34,7 @@ jobs:
           ZIP="TestVaani360_v11_Styled_Next_Test-1.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "::error::ZIP file not found: $ZIP"
-            echo "Files available in repository:"
+            echo "::error::ZIP not found: $ZIP"
             ls -la
             exit 1
           fi
@@ -46,12 +45,42 @@ jobs:
           PROJECT_DIR="project/TestVaani360_Android"
 
           if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            echo "::error::Android project settings file not found."
+            echo "::error::Android project folder not found"
             find project -maxdepth 4 -type f | head -200
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Fix Firebase OTP callback
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="$PROJECT_DIR/app/src/main/java/com/testvaani360/app/AccountManager.kt"
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::AccountManager.kt not found"
+            exit 1
+          fi
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text(encoding="utf-8")
+          old = "override fun onVerificationFailed(e: Exception)"
+          new = "override fun onVerificationFailed(e: com.google.firebase.FirebaseException)"
+
+          if new in source:
+              print("Firebase OTP callback is already corrected.")
+          elif old in source:
+              path.write_text(source.replace(old, new), encoding="utf-8")
+              print("Firebase OTP callback corrected.")
+          else:
+              raise SystemExit("Expected OTP callback signature not found; stopping safely.")
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
