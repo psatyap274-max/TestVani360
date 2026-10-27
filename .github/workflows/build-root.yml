@@ -1,5 +1,5 @@
 
-name: Build TestVaani 360 v32 APK
+name: Build TestVaani 360 v35 APK
 
 on:
   workflow_dispatch:
@@ -23,16 +23,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify and extract v32 ZIP
+      - name: Verify and extract v35 ZIP
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP="TestVaani360_v32_QuestionBank_Expansion.zip"
+          ZIP="TestVaani360_v35_SpeedPractice_NOYES.zip"
           PROJECT="extracted/TestVaani360_Android"
 
           if [ ! -s "$ZIP" ]; then
-            echo "::error::v32 ZIP repository root mein nahi mili."
+            echo "::error::v35 ZIP repository root mein nahi mili."
             exit 1
           fi
 
@@ -50,7 +50,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 9.5.1
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.5.1"
@@ -99,10 +99,10 @@ jobs:
           ls -lh "$APK"
           sha256sum "$APK"
 
-      - name: Upload v32 APK
+      - name: Upload v35 APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v32-debug-apk
+          name: TestVaani360-v35-debug-apk
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
