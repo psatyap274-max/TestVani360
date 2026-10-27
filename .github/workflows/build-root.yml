@@ -15,68 +15,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Check new ZIP
+      - name: Check and extract ZIP
         run: |
-          ZIP_FILE="TestVaani360_v21_AllFixes_GitHubUpload2.zip"
-          test -f "$ZIP_FILE" || {
-            echo "::error::ZIP not found: $ZIP_FILE"
+          ZIP="TestVaani360_v22_KotlinFix_GitHub.zip"
+          test -f "$ZIP" || {
+            echo "::error::New v22 ZIP not found"
             exit 1
           }
-          unzip -t "$ZIP_FILE"
-
-      - name: Extract Android project
-        run: |
+          unzip -t "$ZIP"
           mkdir -p extracted
-          unzip -q TestVaani360_v21_AllFixes_GitHubUpload2.zip -d extracted
-          test -f extracted/TestVaani360_Android/settings.gradle.kts || {
-            echo "::error::Android project not found"
-            exit 1
-          }
+          unzip -q "$ZIP" -d extracted
+          test -f extracted/TestVaani360_Android/settings.gradle.kts
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDK="$ANDROID_HOME"
+          MANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          yes | "$MANAGER" --licenses || true
+          "$MANAGER" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
-            -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager not found"
-            exit 1
-          fi
-
-          yes | "$SDKMANAGER" --licenses || true
-
-          "$SDKMANAGER" --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
-
-      - name: Set up Gradle 8.13
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Build debug APK
+      - name: Build APK
         working-directory: extracted/TestVaani360_Android
-        run: |
-          gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v21-debug-apk
+          name: TestVaani360-v22-debug-apk
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
