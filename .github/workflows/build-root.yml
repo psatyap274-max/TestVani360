@@ -17,16 +17,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check and extract ZIP
+      - name: Select and extract ZIP
         run: |
-          ZIP="TestVaani360_v22_KotlinFix_GitHub.zip"
-          test -f "$ZIP" || {
-            echo "::error::New v22 ZIP not found"
+          if [ -f "TestVaani360_v22_KotlinFix_GitHub.zip" ]; then
+            ZIP="TestVaani360_v22_KotlinFix_GitHub.zip"
+            VERSION="v22"
+          elif [ -f "TestVaani360_v21_AllFixes_GitHubUpload2.zip" ]; then
+            ZIP="TestVaani360_v21_AllFixes_GitHubUpload2.zip"
+            VERSION="v21"
+            echo "::warning::Using v21 fallback"
+          else
+            echo "::error::No supported ZIP found"
             exit 1
-          }
+          fi
+
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           unzip -t "$ZIP"
           mkdir -p extracted
           unzip -q "$ZIP" -d extracted
+
           test -f extracted/TestVaani360_Android/settings.gradle.kts
 
       - uses: actions/setup-java@v4
@@ -36,10 +45,20 @@ jobs:
 
       - name: Install Android SDK
         run: |
-          SDK="$ANDROID_HOME"
-          MANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          MANAGER="$(find "$SDK/cmdline-tools" \
+            -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$MANAGER" ]; then
+            echo "::error::sdkmanager not found"
+            exit 1
+          fi
+
           yes | "$MANAGER" --licenses || true
-          "$MANAGER" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          "$MANAGER" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -51,6 +70,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v22-debug-apk
+          name: TestVaani360-${{ env.APP_VERSION }}-debug-apk
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
