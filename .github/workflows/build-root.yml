@@ -1,5 +1,5 @@
 
-name: Build TestVaani 360 APK
+name: Build TestVaani 360 v37 APK
 
 on:
   workflow_dispatch:
@@ -23,45 +23,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find Android project or extract v37 ZIP
+      - name: Extract exact v37 ZIP and locate project
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p extracted
 
-          ZIP="$(find . -maxdepth 3 -type f \
-            -name 'TestVaani360_v37_Logo_ExamMock_Streak.zip' \
-            -print -quit)"
+          ZIP="TestVaani360_v37_Logo_ExamMock_Streak-1.zip"
 
-          if [ -n "$ZIP" ]; then
-            unzip -t "$ZIP"
-            unzip -q "$ZIP" -d extracted
-            ROOT="extracted"
-          else
-            echo "v37 ZIP not found; checking repository for Android project."
-            ROOT="."
-          fi
-
-          PROJECT="$(find "$ROOT" -type f \
-            -path '*/app/build.gradle.kts' \
-            -not -path '*/.gradle/*' \
-            -print -quit | sed 's#/app/build.gradle.kts##')"
-
-          if [ -z "$PROJECT" ]; then
-            PROJECT="$(find "$ROOT" -type f \
-              -path '*/app/build.gradle' \
-              -not -path '*/.gradle/*' \
-              -print -quit | sed 's#/app/build.gradle##')"
-          fi
-
-          if [ -z "$PROJECT" ]; then
-            echo "::error::Android project nahi mila. Source ZIP ya project files repository mein upload karein."
-            find . -maxdepth 3 -type f | head -100
+          if [ ! -s "$ZIP" ]; then
+            echo "::error::v37 ZIP repository root mein nahi mili: $ZIP"
+            find . -maxdepth 2 -type f -name '*.zip' -print
             exit 1
           fi
 
+          unzip -t "$ZIP"
+          mkdir -p extracted
+          unzip -q "$ZIP" -d extracted
+
+          WRAPPER="$(find extracted -type f -name gradlew \
+            -not -path '*/.gradle/*' -print -quit)"
+
+          if [ -z "$WRAPPER" ]; then
+            echo "::error::ZIP mein Gradle wrapper (gradlew) nahi mila."
+            find extracted -maxdepth 5 -type f | head -150
+            exit 1
+          fi
+
+          PROJECT="$(dirname "$WRAPPER")"
+
+          if [ ! -f "$PROJECT/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT/app/build.gradle" ]; then
+            echo "::error::Gradle wrapper mila, lekin app module nahi mila."
+            find "$PROJECT" -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          chmod +x "$WRAPPER"
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
-          echo "Found Android project: $PROJECT"
+          echo "Found project: $PROJECT"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -69,44 +68,36 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Build debug APK
+      - name: Build APK with project Gradle wrapper
         working-directory: ${{ env.PROJECT }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew --no-daemon --stacktrace :app:assembleDebug
-          else
-            echo "::error::Project mein gradlew wrapper nahi mila."
-            exit 1
-          fi
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
       - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
+
           APK="$PROJECT/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -s "$APK" ]; then
-            echo "::error::APK generate nahi hui."
+            echo "::error::Build ke baad APK nahi mili."
+            find "$PROJECT/app/build/outputs" -type f 2>/dev/null || true
             exit 1
           fi
 
           ls -lh "$APK"
           sha256sum "$APK"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-debug-apk
+          name: TestVaani360-v37-debug-apk
           path: ${{ env.PROJECT }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
