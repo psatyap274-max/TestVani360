@@ -33,23 +33,57 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-9.5.1/bin" >> "$GITHUB_PATH"
 
-      - name: Extract v38 project
+      - name: Check and extract ZIP
+        shell: bash
         run: |
-          test -f TestVaani360_v38_OK_YES_NO_Labels.zip
-          unzip -q TestVaani360_v38_OK_YES_NO_Labels.zip -d "$RUNNER_TEMP/project"
-          PROJECT_DIR="$(find "$RUNNER_TEMP/project" -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$(dirname "$PROJECT_DIR")" >> "$GITHUB_ENV"
+          set -euxo pipefail
+          ZIP_FILE="TestVaani360_v38_OK_YES_NO_Labels.zip"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file repository root mein nahi mili."
+            ls -la
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/project"
+          unzip -t "$ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/project"
+
+          echo "Searching Android project..."
+          SETTINGS_FILE="$(find "$RUNNER_TEMP/project" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+
+          if [ -n "$SETTINGS_FILE" ]; then
+            PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          else
+            BUILD_FILE="$(find "$RUNNER_TEMP/project" -type f \( -path '*/app/build.gradle' -o -path '*/app/build.gradle.kts' \) -print -quit)"
+            if [ -z "$BUILD_FILE" ]; then
+              echo "ERROR: Android Gradle project files ZIP mein nahi mile."
+              find "$RUNNER_TEMP/project" -maxdepth 5 -type f | head -100
+              exit 1
+            fi
+            PROJECT_DIR="$(dirname "$(dirname "$BUILD_FILE")")"
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Build debug APK
+        shell: bash
         run: |
+          set -euxo pipefail
           cd "$PROJECT_DIR"
           gradle --no-daemon assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk'
+          test -n "$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk' -print -quit)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-v38-debug-apk
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
