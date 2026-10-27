@@ -1,3 +1,4 @@
+
 name: Build TestVaani 360 APK
 
 on:
@@ -21,12 +22,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify and extract v28 ZIP
+      - name: Verify and extract v30 ZIP
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP="TestVaani360_v28_ResultHistory_English.zip"
+          ZIP="TestVaani360_v30_PracticeSets_Icon_Blessing.zip"
           PROJECT="extracted/TestVaani360_Android"
 
           if [ ! -f "$ZIP" ]; then
@@ -87,7 +88,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v28-debug-apk
+          name: TestVaani360-v30-debug-apk
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
