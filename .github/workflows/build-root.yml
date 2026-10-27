@@ -27,6 +27,7 @@ jobs:
           set -euo pipefail
 
           ZIP="TestVaani360_v28_ResultHistory_English.zip"
+          PROJECT="extracted/TestVaani360_Android"
 
           if [ ! -f "$ZIP" ]; then
             echo "::error::ZIP not found: $ZIP"
@@ -37,10 +38,8 @@ jobs:
           mkdir -p extracted
           unzip -q "$ZIP" -d extracted
 
-          PROJECT="extracted/TestVaani360_Android"
-
           if [ ! -f "$PROJECT/settings.gradle.kts" ]; then
-            echo "::error::settings.gradle.kts not found"
+            echo "::error::Android settings.gradle.kts not found"
             find extracted -maxdepth 4 -type f | head -80
             exit 1
           fi
@@ -92,6 +91,3 @@ jobs:
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
-
-Commit message:
-"Fix Gradle compatibility for TestVaani 360 v28"
