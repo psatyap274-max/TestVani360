@@ -23,11 +23,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify and extract v28 ZIP
+        shell: bash
         run: |
+          set -euo pipefail
+
           ZIP="TestVaani360_v28_ResultHistory_English.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "::error::v28 ZIP not found in repository root"
+            echo "::error::ZIP not found in repository root: $ZIP"
             exit 1
           fi
 
@@ -35,8 +38,16 @@ jobs:
           mkdir -p extracted
           unzip -q "$ZIP" -d extracted
 
-          if [ ! -f "extracted/TestVaani360_Android/settings.gradle.kts" ]; then
-            echo "::error::Android project files not found"
+          PROJECT="extracted/TestVaani360_Android"
+
+          if [ ! -f "$PROJECT/settings.gradle.kts" ]; then
+            echo "::error::Android settings.gradle.kts not found"
+            find extracted -maxdepth 4 -type f | head -80
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT/app/build.gradle.kts" ]; then
+            echo "::error::App build.gradle.kts not found"
             exit 1
           fi
 
@@ -46,13 +57,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 9.8.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.8'
+          gradle-version: '9.8.1'
 
-      - name: Install Android SDK
+      - name: Install Android SDK components
+        shell: bash
         run: |
+          set -euo pipefail
+
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           MANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
 
@@ -62,6 +76,7 @@ jobs:
           fi
 
           yes | "$MANAGER" --licenses || true
+
           "$MANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
@@ -77,3 +92,4 @@ jobs:
           name: TestVaani360-v28-debug-apk
           path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
