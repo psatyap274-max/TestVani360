@@ -11,101 +11,64 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build TestVaani 360
+  build-debug-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check new ZIP
+        run: |
+          ZIP_FILE="TestVaani360_v21_AllFixes_GitHubUpload2.zip"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::ZIP not found: $ZIP_FILE"
+            echo "Make sure the ZIP is uploaded in the repository root."
+            exit 1
+          fi
+          unzip -t "$ZIP_FILE"
+
+      - name: Extract Android project
+        run: |
+          mkdir -p extracted
+          unzip -q \
+            TestVaani360_v21_AllFixes_GitHubUpload2.zip \
+            -d extracted
+
+          if [ ! -f "extracted/TestVaani360_Android/settings.gradle.kts" ]; then
+            echo "::error::Android project not found inside ZIP"
+            exit 1
+          fi
+
       - name: Set up Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract v11 project
-        shell: bash
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          set -euo pipefail
+          sdkmanager "platforms;android-36" \
+                     "build-tools;36.0.0"
+          yes | sdkmanager --licenses
 
-          ZIP="TestVaani360_v11_Styled_Next_Test-1.zip"
-
-          if [ ! -f "$ZIP" ]; then
-            echo "::error::ZIP not found: $ZIP"
-            ls -la
-            exit 1
-          fi
-
-          mkdir -p project
-          unzip -q "$ZIP" -d project
-
-          PROJECT_DIR="project/TestVaani360_Android"
-
-          if [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            echo "::error::Android project folder not found"
-            find project -maxdepth 4 -type f | head -200
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Fix Firebase OTP callback
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          FILE="$PROJECT_DIR/app/src/main/java/com/testvaani360/app/AccountManager.kt"
-
-          if [ ! -f "$FILE" ]; then
-            echo "::error::AccountManager.kt not found"
-            exit 1
-          fi
-
-          python3 - "$FILE" <<'PY'
-          import pathlib
-          import sys
-
-          path = pathlib.Path(sys.argv[1])
-          source = path.read_text(encoding="utf-8")
-          old = "override fun onVerificationFailed(e: Exception)"
-          new = "override fun onVerificationFailed(e: com.google.firebase.FirebaseException)"
-
-          if new in source:
-              print("Firebase OTP callback is already corrected.")
-          elif old in source:
-              path.write_text(source.replace(old, new), encoding="utf-8")
-              print("Firebase OTP callback corrected.")
-          else:
-              raise SystemExit("Expected OTP callback signature not found; stopping safely.")
-          PY
-
-      - name: Set up Gradle
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
       - name: Build debug APK
-        shell: bash
+        working-directory: extracted/TestVaani360_Android
         run: |
-          set -euo pipefail
-          cd "$PROJECT_DIR"
-          gradle --no-daemon :app:assembleDebug
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
-          find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print
-          test -n "$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          gradle --no-daemon --stacktrace \
+            :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v11-debug-apk
-          path: project/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
+          name: TestVaani360-v21-debug-apk
+          path: extracted/TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
