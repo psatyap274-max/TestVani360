@@ -46,7 +46,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.8'
+          gradle-version: '9.8.1'
 
       - name: Install Android SDK components
         run: |
@@ -55,6 +55,7 @@ jobs:
 
           if [ -z "$MANAGER" ]; then
             echo "::error::Android sdkmanager not found"
+            find "$SDK" -maxdepth 4 -type f -name sdkmanager 2>/dev/null | head -20
             exit 1
           fi
 
