@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'TestVaani360_v38_OK_YES_NO_Labels.zip'
+      - '*.zip'
       - '.github/workflows/build-root.yml'
 
 permissions:
@@ -14,6 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -25,65 +26,116 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
-          wget -q https://services.gradle.org/distributions/gradle-9.5.1-bin.zip -O /tmp/gradle.zip
-          sudo unzip -q /tmp/gradle.zip -d /opt
-          echo "/opt/gradle-9.5.1/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
 
-      - name: Check and extract ZIP
+      - name: Find and extract v38 ZIP
         shell: bash
         run: |
-          set -euxo pipefail
-          ZIP_FILE="TestVaani360_v38_OK_YES_NO_Labels.zip"
+          set -euo pipefail
+
+          ZIP_FILE="TestVaani360_v38_OK_YES_NO_Labels-1.zip"
+
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file repository root mein nahi mili."
-            ls -la
+            ZIP_FILE="TestVaani360_v38_OK_YES_NO_Labels.zip"
+          fi
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: v38 ZIP nahi mili."
+            find . -maxdepth 2 -type f -name '*.zip'
             exit 1
           fi
 
-          mkdir -p "$RUNNER_TEMP/project"
+          mkdir -p "$RUNNER_TEMP/tv-project"
           unzip -t "$ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/project"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/tv-project"
 
-          echo "Searching Android project..."
-          SETTINGS_FILE="$(find "$RUNNER_TEMP/project" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          echo "ZIP CONTENTS:"
+          find "$RUNNER_TEMP/tv-project" -maxdepth 5 -type f \
+            \( -name settings.gradle -o \
+               -name settings.gradle.kts -o \
+               -name build.gradle -o \
+               -name build.gradle.kts -o \
+               -name gradlew \) -print
 
-          if [ -n "$SETTINGS_FILE" ]; then
-            PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          SETTINGS="$(find "$RUNNER_TEMP/tv-project" -type f \
+            \( -name settings.gradle -o \
+               -name settings.gradle.kts \) -print -quit)"
+
+          if [ -n "$SETTINGS" ]; then
+            PROJECT="$(dirname "$SETTINGS")"
           else
-            BUILD_FILE="$(find "$RUNNER_TEMP/project" -type f \( -path '*/app/build.gradle' -o -path '*/app/build.gradle.kts' \) -print -quit)"
-            if [ -z "$BUILD_FILE" ]; then
-              echo "ERROR: Android Gradle project files ZIP mein nahi mile."
-              find "$RUNNER_TEMP/project" -maxdepth 5 -type f | head -100
+            WRAPPER="$(find "$RUNNER_TEMP/tv-project" -type f \
+              -name gradlew -print -quit)"
+
+            if [ -n "$WRAPPER" ]; then
+              PROJECT="$(dirname "$WRAPPER")"
+            else
+              APP_BUILD="$(find "$RUNNER_TEMP/tv-project" -type f \
+                \( -path '*/app/build.gradle' -o \
+                   -path '*/app/build.gradle.kts' \) -print -quit)"
+
+              if [ -z "$APP_BUILD" ]; then
+                echo "ERROR: ZIP mein Android Gradle project nahi mila."
+                find "$RUNNER_TEMP/tv-project" -maxdepth 6 -type f \
+                  | head -150
+                exit 1
+              fi
+
+              echo "ERROR: app module mila lekin settings.gradle aur gradlew nahi mile."
+              echo "Original ZIP structure verify karna zaroori hai."
               exit 1
             fi
-            PROJECT_DIR="$(dirname "$(dirname "$BUILD_FILE")")"
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project found: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT"
+          ls -la "$PROJECT"
 
       - name: Build debug APK
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           cd "$PROJECT_DIR"
-          gradle --no-daemon assembleDebug
 
-      - name: Verify APK
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            echo "ERROR: Gradle Wrapper missing."
+            exit 1
+          fi
+
+      - name: Find and verify APK
         shell: bash
         run: |
-          set -euxo pipefail
-          find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk'
-          test -n "$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk' -print -quit)"
+          set -euo pipefail
+
+          APK="$(find "$PROJECT_DIR" -type f \
+            -path '*/build/outputs/apk/*/*.apk' \
+            ! -name '*androidTest*' -print -quit)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: Build ke baad APK nahi mili."
+            find "$PROJECT_DIR" -type f -name '*.apk' -print
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/final-apk"
+          cp "$APK" "$RUNNER_TEMP/final-apk/TestVaani360-debug.apk"
+          echo "APK_PATH=$RUNNER_TEMP/final-apk/TestVaani360-debug.apk" \
+            >> "$GITHUB_ENV"
+
+          ls -lh "$RUNNER_TEMP/final-apk/TestVaani360-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v38-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          name: TestVaani360-debug-APK
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
+          retention-days: 7
