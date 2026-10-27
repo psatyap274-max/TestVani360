@@ -21,24 +21,20 @@ jobs:
       - name: Check new ZIP
         run: |
           ZIP_FILE="TestVaani360_v21_AllFixes_GitHubUpload2.zip"
-          if [ ! -f "$ZIP_FILE" ]; then
+          test -f "$ZIP_FILE" || {
             echo "::error::ZIP not found: $ZIP_FILE"
-            echo "Make sure the ZIP is uploaded in the repository root."
             exit 1
-          fi
+          }
           unzip -t "$ZIP_FILE"
 
       - name: Extract Android project
         run: |
           mkdir -p extracted
-          unzip -q \
-            TestVaani360_v21_AllFixes_GitHubUpload2.zip \
-            -d extracted
-
-          if [ ! -f "extracted/TestVaani360_Android/settings.gradle.kts" ]; then
-            echo "::error::Android project not found inside ZIP"
+          unzip -q TestVaani360_v21_AllFixes_GitHubUpload2.zip -d extracted
+          test -f extracted/TestVaani360_Android/settings.gradle.kts || {
+            echo "::error::Android project not found"
             exit 1
-          fi
+          }
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -46,14 +42,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platforms;android-36" \
-                     "build-tools;36.0.0"
-          yes | sdkmanager --licenses
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found"
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
@@ -63,8 +72,7 @@ jobs:
       - name: Build debug APK
         working-directory: extracted/TestVaani360_Android
         run: |
-          gradle --no-daemon --stacktrace \
-            :app:assembleDebug
+          gradle --no-daemon --stacktrace :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
