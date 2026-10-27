@@ -39,7 +39,7 @@ jobs:
           unzip -q "$ZIP" -d extracted
 
           if [ ! -f "$PROJECT/settings.gradle.kts" ]; then
-            echo "::error::Android settings.gradle.kts not found"
+            echo "::error::settings.gradle.kts not found"
             find extracted -maxdepth 4 -type f | head -80
             exit 1
           fi
@@ -55,10 +55,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 9.5
+      - name: Set up Gradle 9.5.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5'
+          gradle-version: '9.5.1'
 
       - name: Install Android SDK components
         shell: bash
