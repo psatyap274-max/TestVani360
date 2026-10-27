@@ -1,77 +1,122 @@
-
 name: Build TestVaani 360 v32 APK
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+workflow_dispatch:
+push:
+branches:
+- main
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build-debug-apk:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+build-debug-apk:
+runs-on: ubuntu-latest
+timeout-minutes: 40
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Verify v32 ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP="TestVaani360_v32_QuestionBank_Expansion.zip"
-          if [ ! -f "$ZIP" ]; then
-            echo "::error::v32 ZIP repository root mein nahi mili: $ZIP"
-            exit 1
-          fi
-          unzip -t "$ZIP"
+  - name: Verify v32 ZIP
+    shell: bash
+    run: |
+      set -euo pipefail
+      ZIP="TestVaani360_v32_QuestionBank_Expansion.zip"
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+      if [ ! -f "$ZIP" ]; then
+        echo "::error::v32 ZIP repository root mein nahi mili: $ZIP"
+        exit 1
+      fi
 
-      - name: Set up Gradle 8.13
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.13"
+      unzip -t "$ZIP"
 
-      - name: Extract v32 project
-        shell: bash
-        run: |
-          set -euo pipefail
-          unzip -q TestVaani360_v32_QuestionBank_Expansion.zip
-          test -f TestVaani360_Android/settings.gradle.kts
-          test -f TestVaani360_Android/app/build.gradle.kts
-          test -f TestVaani360_Android/app/src/main/assets/index.html
+  - name: Set up Java 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: "17"
 
-      - name: Check Android SDK
-        uses: android-actions/setup-android@v3
+  - name: Set up Gradle 8.13
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: "8.13"
 
-      - name: Build debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd TestVaani360_Android
-          gradle --no-daemon --stacktrace :app:assembleDebug
+  - name: Extract v32 project
+    shell: bash
+    run: |
+      set -euo pipefail
 
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="TestVaani360_Android/app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          ls -lh "$APK"
+      unzip -q TestVaani360_v32_QuestionBank_Expansion.zip
 
-      - name: Upload v32 debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TestVaani360-v32-debug-apk
-          path: TestVaani360_Android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+      test -f TestVaani360_Android/settings.gradle.kts
+      test -f TestVaani360_Android/app/build.gradle.kts
+      test -f TestVaani360_Android/app/src/main/assets/index.html
+
+  - name: Install Android SDK packages
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+      if [ ! -d "$SDK/cmdline-tools" ]; then
+        echo "::error::Android SDK command-line tools nahi mile."
+        exit 1
+      fi
+
+      SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+
+      if [ -z "$SDKMANAGER" ]; then
+        echo "::error::sdkmanager executable nahi mila."
+        exit 1
+      fi
+
+      chmod +x "$SDKMANAGER"
+
+      echo "Android SDK: $SDK"
+      echo "SDK manager: $SDKMANAGER"
+
+      export ANDROID_HOME="$SDK"
+      export ANDROID_SDK_ROOT="$SDK"
+
+      echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+      echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses || true
+
+      "$SDKMANAGER" --sdk_root="$SDK" \
+        "platform-tools" \
+        "platforms;android-36" \
+        "build-tools;36.0.0"
+
+  - name: Build debug APK
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      cd TestVaani360_Android
+
+      gradle --no-daemon --stacktrace :app:assembleDebug
+
+  - name: Verify APK
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      APK="TestVaani360_Android/app/build/outputs/apk/debug/app-debug.apk"
+
+      if [ ! -s "$APK" ]; then
+        echo "::error::APK file nahi bani ya khaali hai."
+        exit 1
+      fi
+
+      ls -lh "$APK"
+
+  - name: Upload v32 debug APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: TestVaani360-v32-debug-apk
+      path: TestVaani360_Android/app/build/outputs/apk/debug/app-debug.apk
+      if-no-files-found: error
+      retention-days: 14
