@@ -1,11 +1,13 @@
-
-name: Build TestVaani 360 APK
+name: Build TestVaani 360 v53 APK
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/build-root.yml"
+      - "TestVaani360_v53_IconSafeMargin_SourceAudit.zip"
 
 permissions:
   contents: read
@@ -22,56 +24,52 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: "8.13"
 
-      - name: Locate project and build APK
+      - name: Extract v53 source ZIP
         shell: bash
         run: |
           set -euo pipefail
+          ZIP_FILE="TestVaani360_v53_IconSafeMargin_SourceAudit.zip"
 
-          if [ -f "settings.gradle.kts" ] && [ -f "app/build.gradle.kts" ]; then
-            PROJECT_DIR="."
-          elif [ -f "TestVaani360_Android/settings.gradle.kts" ] && [ -f "TestVaani360_Android/app/build.gradle.kts" ]; then
-            PROJECT_DIR="TestVaani360_Android"
-          else
-            ZIP_FILE="$(find . -maxdepth 4 -type f -iname '*v48*.zip' -print -quit)"
-
-            if [ -z "$ZIP_FILE" ]; then
-              echo "ERROR: Android project or v48 ZIP not found."
-              exit 1
-            fi
-
-            mkdir -p extracted
-            unzip -o "$ZIP_FILE" -d extracted
-
-            SETTINGS_FILE="$(find extracted -type f -name settings.gradle.kts -print -quit)"
-
-            if [ -z "$SETTINGS_FILE" ]; then
-              echo "ERROR: settings.gradle.kts missing in ZIP."
-              exit 1
-            fi
-
-            PROJECT_DIR="${SETTINGS_FILE%/settings.gradle.kts}"
-
-            if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-              echo "ERROR: app/build.gradle.kts missing."
-              exit 1
-            fi
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE repository root mein nahi mili."
+            echo "Pehle latest v53 ZIP ko repository mein upload karein."
+            exit 1
           fi
 
-          echo "Using Android project: $PROJECT_DIR"
+          mkdir -p "$RUNNER_TEMP/testvaani-source"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/testvaani-source"
+
+          PROJECT_DIR="$(find "$RUNNER_TEMP/testvaani-source" \
+            -type f -name settings.gradle.kts \
+            -print -quit | xargs -r dirname)"
+
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android project ya app/build.gradle.kts nahi mila."
+            find "$RUNNER_TEMP/testvaani-source" -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found: $PROJECT_DIR"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
           cd "$PROJECT_DIR"
           gradle --no-daemon :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v48-debug-apk
-          path: |
-            **/app/build/outputs/apk/debug/*.apk
+          name: TestVaani360-v53-debug-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
