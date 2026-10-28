@@ -3,7 +3,8 @@ name: Build TestVaani 360 APK
 on:
 workflow_dispatch:
 push:
-branches: [ main ]
+branches:
+- main
 
 permissions:
 contents: read
@@ -11,10 +12,6 @@ contents: read
 jobs:
 build-debug-apk:
 runs-on: ubuntu-latest
-
-defaults:
-  run:
-    working-directory: TestVaani360_Android
 
 steps:
   - name: Checkout repository
@@ -25,14 +22,42 @@ steps:
     with:
       distribution: temurin
       java-version: '17'
+      cache: gradle
+
+  - name: Find Android project
+    shell: bash
+    run: |
+      echo "Repository files:"
+      ls -la
+      find . -maxdepth 4 -type f \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \) -print
 
   - name: Build debug APK
+    shell: bash
     run: |
-      gradle --no-daemon :app:assembleDebug
+      set -euo pipefail
+
+      if [ -f "TestVaani360_Android/gradlew" ]; then
+        cd TestVaani360_Android
+        chmod +x gradlew
+        ./gradlew --no-daemon :app:assembleDebug
+      elif [ -f "gradlew" ]; then
+        chmod +x gradlew
+        ./gradlew --no-daemon :app:assembleDebug
+      elif [ -f "TestVaani360_Android/settings.gradle" ] || [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
+        cd TestVaani360_Android
+        gradle --no-daemon :app:assembleDebug
+      elif [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+        gradle --no-daemon :app:assembleDebug
+      else
+        echo "ERROR: Android project files not found. Check whether the ZIP was extracted."
+        exit 1
+      fi
 
   - name: Upload APK
     uses: actions/upload-artifact@v4
     with:
-      name: TestVaani360-v48-debug-apk
-      path: TestVaani360_Android/app/build/outputs/apk/debug/*.apk
+      name: TestVaani360-debug-apk
+      path: |
+        TestVaani360_Android/app/build/outputs/apk/debug/*.apk
+        app/build/outputs/apk/debug/*.apk
       if-no-files-found: error
