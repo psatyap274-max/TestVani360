@@ -10,54 +10,69 @@ permissions:
 contents: read
 
 jobs:
-build-debug-apk:
+build:
 runs-on: ubuntu-latest
 
 steps:
   - name: Checkout repository
     uses: actions/checkout@v4
 
-  - name: Set up Java 17
+  - name: Set up Java
     uses: actions/setup-java@v4
     with:
       distribution: temurin
       java-version: '17'
-      cache: gradle
 
-  - name: Find Android project
-    shell: bash
-    run: |
-      echo "Repository files:"
-      ls -la
-      find . -maxdepth 4 -type f \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \) -print
-
-  - name: Build debug APK
+  - name: Locate and extract v48 ZIP if needed
     shell: bash
     run: |
       set -euo pipefail
 
-      if [ -f "TestVaani360_Android/gradlew" ]; then
-        cd TestVaani360_Android
-        chmod +x gradlew
-        ./gradlew --no-daemon :app:assembleDebug
-      elif [ -f "gradlew" ]; then
-        chmod +x gradlew
-        ./gradlew --no-daemon :app:assembleDebug
-      elif [ -f "TestVaani360_Android/settings.gradle" ] || [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
-        cd TestVaani360_Android
-        gradle --no-daemon :app:assembleDebug
-      elif [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
-        gradle --no-daemon :app:assembleDebug
-      else
-        echo "ERROR: Android project files not found. Check whether the ZIP was extracted."
+      if [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
+        echo "Project already extracted."
+        exit 0
+      fi
+
+      ZIP_FILE="$(find . -maxdepth 3 -type f -iname '*v48*.zip' -print -quit)"
+
+      if [ -z "$ZIP_FILE" ]; then
+        echo "ERROR: v48 ZIP not found in repository."
+        echo "Upload the v48 ZIP to the repository or extract its files."
         exit 1
       fi
+
+      mkdir -p extracted
+      unzip -o "$ZIP_FILE" -d extracted
+
+      PROJECT_DIR="$(find extracted -type f -name settings.gradle.kts -print -quit | xargs -r dirname)"
+
+      if [ -z "$PROJECT_DIR" ]; then
+        echo "ERROR: settings.gradle.kts not found after extraction."
+        exit 1
+      fi
+
+      echo "$PROJECT_DIR" > project_dir.txt
+
+  - name: Build APK
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      if [ -f "project_dir.txt" ]; then
+        PROJECT_DIR="$(cat project_dir.txt)"
+      else
+        PROJECT_DIR="TestVaani360_Android"
+      fi
+
+      cd "$PROJECT_DIR"
+
+      gradle --no-daemon :app:assembleDebug
 
   - name: Upload APK
     uses: actions/upload-artifact@v4
     with:
-      name: TestVaani360-debug-apk
+      name: TestVaani360-v48-debug-apk
       path: |
+        extracted/**/app/build/outputs/apk/debug/*.apk
         TestVaani360_Android/app/build/outputs/apk/debug/*.apk
-        app/build/outputs/apk/debug/*.apk
       if-no-files-found: error
