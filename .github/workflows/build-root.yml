@@ -16,51 +16,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-debug-apk:
-    name: Build and Upload V56 Debug APK
+  build:
+    name: Build V56 Debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Verify V56 ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f TestVaani360_v56_DailyStreak_Update.zip
+          echo "V56 ZIP found."
+
+      - name: Extract Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -q TestVaani360_v56_DailyStreak_Update.zip
+          test -f TestVaani360_Android/settings.gradle.kts
+          test -f TestVaani360_Android/build.gradle.kts
+          test -f TestVaani360_Android/app/build.gradle.kts
+          test -f TestVaani360_Android/app/src/main/assets/index.html
+          echo "Android project extracted successfully."
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Verify project files
+      - name: Verify Daily Streak
         shell: bash
         run: |
           set -euo pipefail
-          test -f TestVaani360_Android/settings.gradle.kts
-          test -f TestVaani360_Android/build.gradle.kts
-          test -f TestVaani360_Android/app/build.gradle.kts
-          test -f TestVaani360_Android/app/src/main/assets/index.html
-          echo "Project files verified."
+          grep -q 'recordStudyStreak' \
+            TestVaani360_Android/app/src/main/assets/index.html
+          echo "Daily Streak function found."
 
-      - name: Build debug APK
+      - name: Build Android APK
         working-directory: TestVaani360_Android
         run: gradle --no-daemon --stacktrace clean assembleDebug
 
-      - name: Verify APK
+      - name: Verify APK output
         shell: bash
         run: |
           set -euo pipefail
-          find TestVaani360_Android/app/build/outputs/apk/debug \
-            -maxdepth 1 -type f -name '*.apk'
-          test -n "$(find TestVaani360_Android/app/build/outputs/apk/debug \
+          APK="$(find TestVaani360_Android/app/build/outputs/apk/debug \
             -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          ls -lh "$APK"
+          echo "APK build completed."
 
-      - name: Upload V56 debug APK
+      - name: Upload V56 APK
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-V56-DailyStreak-debug-APK
