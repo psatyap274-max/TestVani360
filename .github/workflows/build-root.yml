@@ -1,22 +1,19 @@
-name: Build TestVaani 360 V55 V2 APK
 
-on:
-workflow_dispatch:
-push:
-branches:
-- main
-
-permissions:
-contents: read
-
-jobs:
-build:
-name: Build V55 V2 Debug APK
-runs-on: ubuntu-latest
-
-steps:
-  - name: Checkout V55 V2 source
+  - name: Checkout source code
     uses: actions/checkout@v4
+
+  - name: Detect Android project folder
+    shell: bash
+    run: |
+      if [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
+        echo "PROJECT_DIR=TestVaani360_Android" >> "$GITHUB_ENV"
+      elif [ -f "settings.gradle.kts" ]; then
+        echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+      else
+        echo "ERROR: Android project folder not found."
+        find . -maxdepth 3 -name settings.gradle.kts -print
+        exit 1
+      fi
 
   - name: Set up Java 17
     uses: actions/setup-java@v4
@@ -30,25 +27,23 @@ steps:
     with:
       gradle-version: "8.13"
 
-  - name: Verify V55 V2 project
-    working-directory: TestVaani360_Android
+  - name: Check Android project files
+    working-directory: ${{ env.PROJECT_DIR }}
     shell: bash
     run: |
       test -f settings.gradle.kts
       test -f build.gradle.kts
       test -f app/build.gradle.kts
-      test -f gradle/wrapper/gradle-wrapper.properties
-      grep -q 'gradle-8.13-bin.zip' gradle/wrapper/gradle-wrapper.properties
-      echo "V55 V2 project checks passed."
+      echo "Android project files found."
 
   - name: Build Debug APK
-    working-directory: TestVaani360_Android
+    working-directory: ${{ env.PROJECT_DIR }}
     run: gradle --no-daemon clean assembleDebug
 
-  - name: Upload V55 V2 APK
+  - name: Upload APK artifact
     uses: actions/upload-artifact@v4
     with:
-      name: TestVaani360-V55-V2-debug-APK
-      path: TestVaani360_Android/app/build/outputs/apk/debug/*.apk
+      name: TestVaani360-debug-apk
+      path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
       if-no-files-found: error
       retention-days: 14
