@@ -24,6 +24,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Install Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
       - name: Extract Android project ZIP
         shell: bash
         run: |
@@ -33,33 +38,30 @@ jobs:
             echo "ERROR: Project ZIP nahi mili."
             exit 1
           fi
-          echo "Extracting: $ZIP_FILE"
           mkdir -p "$RUNNER_TEMP/android-project"
           unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/android-project"
+          echo "Extracted ZIP: $ZIP_FILE"
 
-      - name: Locate Gradle wrapper and build APK
+      - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
-          PROJECT_DIR="$(dirname "$(find "$RUNNER_TEMP/android-project" -type f -name gradlew | head -n 1)")"
+          PROJECT_DIR="$(dirname "$(find "$RUNNER_TEMP/android-project" -type f -name 'settings.gradle*' | head -n 1)")"
 
-          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: Extracted ZIP ke andar gradlew nahi mila."
-            echo "ZIP ke andar files:"
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android project ya app/build.gradle.kts nahi mila."
             find "$RUNNER_TEMP/android-project" -maxdepth 4 -type f | head -n 100
             exit 1
           fi
 
-          echo "Gradle project: $PROJECT_DIR"
-          chmod +x "$PROJECT_DIR/gradlew"
+          echo "Building project at: $PROJECT_DIR"
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
+          gradle --no-daemon assembleDebug
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani-360-debug-apk
-          path: |
-            ${{ runner.temp }}/android-project/**/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 14
