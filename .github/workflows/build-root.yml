@@ -23,15 +23,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK and required packages
         uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
+        with:
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
 
       - name: Extract latest source ZIP
         run: |
@@ -45,7 +43,7 @@ jobs:
           PROJECT_DIR="$(find source -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit | xargs -r dirname)"
           if [ -z "$PROJECT_DIR" ]; then
             echo "Gradle settings file not found inside source ZIP."
-            find source -maxdepth 4 -type f | head -100
+            find source -maxdepth 5 -type f | head -100
             exit 1
           fi
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
@@ -58,7 +56,8 @@ jobs:
             chmod +x "$PROJECT_DIR/gradlew"
             "$PROJECT_DIR/gradlew" -p "$PROJECT_DIR" --no-daemon :app:assembleDebug
           else
-            gradle -p "$PROJECT_DIR" --no-daemon :app:assembleDebug
+            echo "Gradle wrapper not found in ZIP; refusing to use an arbitrary system Gradle."
+            exit 1
           fi
 
       - name: Upload APK
