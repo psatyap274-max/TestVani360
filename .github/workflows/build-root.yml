@@ -6,14 +6,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - '**.kt'
-      - '**.java'
-      - '**.xml'
-      - '**.gradle'
-      - '**.gradle.kts'
-      - 'gradle/**'
-      - '.github/workflows/build-root.yml'
 
 permissions:
   contents: read
@@ -22,6 +14,10 @@ jobs:
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: TestVaani360_Android
 
     steps:
       - name: Checkout source code
@@ -33,23 +29,29 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+          cache-dependency-path: TestVaani360_Android/gradle/wrapper/gradle-wrapper.properties
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: |
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
 
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Verify Gradle version
+      - name: Check Gradle
         run: ./gradlew --version
 
       - name: Build Debug APK
         run: ./gradlew --no-daemon --stacktrace assembleDebug
 
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: TestVaani360_Android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
