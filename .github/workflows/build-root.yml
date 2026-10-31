@@ -32,13 +32,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 36
+      - name: Install SDK 36
         run: |
           sdkmanager --install \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Find Android project
+      - name: Locate Android project
         shell: bash
         run: |
           if [ -f "settings.gradle.kts" ]; then
@@ -46,23 +46,22 @@ jobs:
           elif [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
             echo "PROJECT_DIR=TestVaani360_Android" >> "$GITHUB_ENV"
           else
-            echo "ERROR: Android project not found"
+            echo "Android project not found"
             find . -name settings.gradle.kts
             exit 1
           fi
 
-      - name: Check project files
+      - name: Verify project
         run: |
-          echo "Project: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
+          echo "Project directory: $PROJECT_DIR"
           test -f "$PROJECT_DIR/app/build.gradle.kts"
+          cat "$PROJECT_DIR/gradle.properties"
 
       - name: Build Debug APK
         run: |
           gradle -p "$PROJECT_DIR" \
             --no-daemon \
-            clean \
-            assembleDebug \
+            :app:assembleDebug \
             --stacktrace
 
       - name: Upload APK
