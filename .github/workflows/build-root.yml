@@ -7,6 +7,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,10 +24,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.8'
+          gradle-version: '8.13'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: |
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
 
       - name: Find Android project
         shell: bash
@@ -34,14 +45,18 @@ jobs:
           elif [ -f "TestVaani360_Android/settings.gradle.kts" ]; then
             echo "PROJECT_DIR=TestVaani360_Android" >> "$GITHUB_ENV"
           else
-            echo "Android project settings.gradle.kts not found"
+            echo "Android project not found"
             exit 1
           fi
 
       - name: Build Debug APK
-        run: gradle -p "$PROJECT_DIR" :app:assembleDebug
+        run: |
+          gradle -p "$PROJECT_DIR" \
+            :app:assembleDebug \
+            --stacktrace
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-v57-APK
