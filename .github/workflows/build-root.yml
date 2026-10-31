@@ -27,9 +27,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 36
+      - name: Install Android SDK
         run: |
-          yes | sdkmanager --licenses
           sdkmanager --install \
             "platforms;android-36" \
             "build-tools;36.0.0"
@@ -43,18 +42,19 @@ jobs:
         id: locate
         shell: bash
         run: |
+          PROJECT_DIR=""
+
           if [ -f "settings.gradle.kts" ] && [ -f "app/build.gradle.kts" ]; then
             PROJECT_DIR="."
           elif [ -f "TestVaani360_Android/settings.gradle.kts" ] && [ -f "TestVaani360_Android/app/build.gradle.kts" ]; then
             PROJECT_DIR="TestVaani360_Android"
           else
-            echo "Android project not found."
-            find . -maxdepth 4 -name settings.gradle.kts
+            echo "Android project not found"
+            find . -name settings.gradle.kts
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project: $PROJECT_DIR"
 
       - name: Build Debug APK
         run: |
