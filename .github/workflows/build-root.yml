@@ -1,5 +1,4 @@
-
-name: Build TestVaani 360 v57 APK
+name: Build TestVaani 360 APK
 
 on:
   workflow_dispatch:
@@ -22,41 +21,50 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          accept-android-sdk-licenses: true
 
-      - name: Install required Android SDK
+      - name: Install Android SDK packages
         run: |
           sdkmanager --install \
+            "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Set up Gradle 8.13
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-
-      - name: Verify Android project
+      - name: Extract latest source ZIP
         run: |
-          test -f "TestVaani360_Android/settings.gradle.kts"
-          test -f "TestVaani360_Android/app/build.gradle.kts"
+          mkdir -p source
+          unzip -q "TestVaani360_v57_language_questionbank_update.zip" -d source
+
+      - name: Find Android project
+        id: project
+        shell: bash
+        run: |
+          PROJECT_DIR="$(find source -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit | xargs -r dirname)"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Gradle settings file not found inside source ZIP."
+            find source -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Found project at: $PROJECT_DIR"
 
       - name: Build Debug APK
         run: |
-          gradle -p TestVaani360_Android \
-            --no-daemon \
-            :app:assembleDebug \
-            --stacktrace
+          PROJECT_DIR="${{ steps.project.outputs.dir }}"
+          if [ -f "$PROJECT_DIR/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/gradlew"
+            "$PROJECT_DIR/gradlew" -p "$PROJECT_DIR" --no-daemon :app:assembleDebug
+          else
+            gradle -p "$PROJECT_DIR" --no-daemon :app:assembleDebug
+          fi
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: TestVaani360-v57-debug-apk
-          path: TestVaani360_Android/app/build/outputs/apk/debug/*.apk
+          name: TestVaani360-debug-apk
+          path: source/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
