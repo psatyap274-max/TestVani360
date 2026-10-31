@@ -3,11 +3,8 @@ name: Build TestVaani 360 APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
+    paths:
+      - ".github/workflows/build-root.yml"
 
 jobs:
   build:
@@ -27,52 +24,40 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        shell: bash
         run: |
-          sdkmanager --install "platform-tools"
-          sdkmanager --install "platforms;android-36"
-          sdkmanager --install "build-tools;36.0.0"
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Extract source ZIP
-        shell: bash
         run: |
+          ZIP_FILE="$(find . -maxdepth 2 -type f -iname '*.zip' | head -n 1)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Source ZIP not found in repository"
+            exit 1
+          fi
+
           mkdir -p source
-          unzip -q "TestVaani360_v57_language_questionbank_update.zip" -d source
+          unzip -q "$ZIP_FILE" -d source
 
       - name: Find Android project
-        id: project
-        shell: bash
         run: |
-          SETTINGS_FILE="$(find source -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit)"
-
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "Gradle settings file was not found inside the source ZIP."
-            find source -maxdepth 5 -type f | head -100
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/source" -type f -name gradlew -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Gradle wrapper not found in source ZIP"
+            find "$GITHUB_WORKSPACE/source" -maxdepth 4 -type f | head -n 100
             exit 1
           fi
-
-          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found Android project: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Build Debug APK
-        shell: bash
         run: |
-          PROJECT_DIR="${{ steps.project.outputs.dir }}"
-
-          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "Gradle wrapper (gradlew) was not found in the project."
-            find "$PROJECT_DIR" -maxdepth 3 -type f -name "gradle*" -print
-            exit 1
-          fi
-
-          chmod +x "$PROJECT_DIR/gradlew"
-          "$PROJECT_DIR/gradlew" -p "$PROJECT_DIR" --no-daemon :app:assembleDebug
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug
 
       - name: Upload Debug APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: TestVaani360-debug-apk
-          path: source/**/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
